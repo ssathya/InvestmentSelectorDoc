@@ -3,9 +3,20 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30503.244
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Utilities", "Utilities\Utilities.csproj", "{1C0CE2B3-7398-411D-9812-7D0A00924977}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Utilities", "Utilities\Utilities.csproj", "{1C0CE2B3-7398-411D-9812-7D0A00924977}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MongoRepository", "MongoRepository\MongoRepository.csproj", "{B77F8037-6EAE-4EE9-8D6B-87F737185BFA}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MongoRepository", "MongoRepository\MongoRepository.csproj", "{B77F8037-6EAE-4EE9-8D6B-87F737185BFA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{78C1A92C-36A1-4704-B5FB-6BC97145196F}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Doc", "Doc", "{6EFB5EE6-DE79-431E-847E-8F56E5817EDC}"
+	ProjectSection(SolutionItems) = preProject
+		Doc\Database.md = Doc\Database.md
+		Doc\Overview.md = Doc\Overview.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,6 +35,9 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6EFB5EE6-DE79-431E-847E-8F56E5817EDC} = {78C1A92C-36A1-4704-B5FB-6BC97145196F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {275DE788-26FD-4013-B4C0-A0B3A5476F26}
