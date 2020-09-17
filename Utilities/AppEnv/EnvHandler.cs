@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Utilities.AWSS3;
+using Utilities.AWS_S3;
 using Utilities.StringHelpers;
 
 namespace Utilities.AppEnv

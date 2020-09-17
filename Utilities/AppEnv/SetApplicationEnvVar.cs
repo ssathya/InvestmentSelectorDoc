@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Utilities.AWSS3;
+using Utilities.AWS_S3;
 using Utilities.Models;
 using Utilities.StringHelpers;
 
