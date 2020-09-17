@@ -1,6 +1,8 @@
-﻿namespace MongoRepository.Model.AppModel
+﻿using Models.AppModel;
+
+namespace MongoRepository.Model.AppModel
 {
-	public class SecurityAnalysisDB : Models.Index.SecurityAnalysis, IAPPDoc
+	public class SecurityAnalysisDB : SecurityAnalysis, IAPPDoc
 	{
 		public long ComputeDate { get; set; }
 		public string Id { get; set; }

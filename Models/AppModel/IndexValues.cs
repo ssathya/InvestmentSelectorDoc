@@ -1,4 +1,4 @@
-﻿namespace Models.Index
+﻿namespace Models.AppModel
 {
 	public class IndexValues
 	{

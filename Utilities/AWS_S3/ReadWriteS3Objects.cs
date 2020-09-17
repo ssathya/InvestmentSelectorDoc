@@ -6,7 +6,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Utilities.StringHelpers;
 
-namespace Utilities.AWSS3
+namespace Utilities.AWS_S3
 {
 	public class ReadWriteS3Objects
 	{
@@ -41,7 +41,6 @@ namespace Utilities.AWSS3
 		/// <returns></returns>
 		public async Task<string> GetDataFromS3(string objectName)
 		{
-			var responseBody = "";
 			AmazonS3Client client;
 			try
 			{
@@ -63,7 +62,7 @@ namespace Utilities.AWSS3
 				using var response = await client.GetObjectAsync(request);
 				using var responseStream = response.ResponseStream;
 				using var reader = new StreamReader(responseStream);
-				responseBody = await reader.ReadToEndAsync();
+				string responseBody = await reader.ReadToEndAsync();
 
 				return responseBody;
 			}

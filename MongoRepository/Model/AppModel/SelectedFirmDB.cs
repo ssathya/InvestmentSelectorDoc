@@ -1,6 +1,8 @@
-﻿namespace MongoRepository.Model.AppModel
+﻿using Models.AppModel;
+
+namespace MongoRepository.Model.AppModel
 {
-	public class SelectedFirmDB : Models.Index.SelectedFirm, IAPPDoc
+	public class SelectedFirmDB : SelectedFirm, IAPPDoc
 	{
 		public long ComputeDate { get; set; }
 		public string Id { get; set; }

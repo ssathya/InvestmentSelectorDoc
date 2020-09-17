@@ -1,4 +1,4 @@
-﻿namespace Models.Index
+﻿namespace Models.AppModel
 {
 	public class HistoricPrice
 	{
@@ -6,6 +6,7 @@
 		public string Symbol { get; set; }
 		public bool Empty { get; set; }
 	}
+
 	public class Candle
 	{
 		public decimal Open { get; set; }

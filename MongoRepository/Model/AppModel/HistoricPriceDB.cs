@@ -1,6 +1,8 @@
-﻿namespace MongoRepository.Model.AppModel
+﻿using Models.AppModel;
+
+namespace MongoRepository.Model.AppModel
 {
-	public class HistoricPriceDB : Models.Index.HistoricPrice, IAPPDoc
+	public class HistoricPriceDB : HistoricPrice, IAPPDoc
 	{
 		public long ComputeDate { get; set; }
 		public string Id { get; set; }
