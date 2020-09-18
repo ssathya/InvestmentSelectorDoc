@@ -14,11 +14,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Doc", "Doc", "{6EFB5EE6-DE79-431E-847E-8F56E5817EDC}"
 	ProjectSection(SolutionItems) = preProject
+		APICalls.md = APICalls.md
 		Doc\Database.md = Doc\Database.md
 		Doc\Overview.md = Doc\Overview.md
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Models", "Models\Models.csproj", "{FE693CA1-D017-4AAD-900C-8E5555C93FBD}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Models", "Models\Models.csproj", "{FE693CA1-D017-4AAD-900C-8E5555C93FBD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
