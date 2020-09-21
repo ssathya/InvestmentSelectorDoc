@@ -7,3 +7,5 @@
 [Overview](Doc/Overview.md)
 ## Database 
 [Database](Doc/Database.md)
+## API Calls
+[API Calls](Doc/APICalls.md)
