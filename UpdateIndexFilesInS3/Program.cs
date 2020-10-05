@@ -20,10 +20,14 @@ namespace UpdateIndexFilesInS3
 
 			var serviceProvider = serviceCollection.BuildServiceProvider();
 			var rscf = serviceProvider.GetService<IReadSCFile>();
+			Console.WriteLine("Begin reading Excel file");
 			var result = await rscf.ExtractValuesFromMasterSheet();
+			Console.WriteLine("Done reading file");
 			if (result)
 			{
+				Console.WriteLine("Writing data to database");
 				result = await rscf.StoreValuesToDb();
+				Console.WriteLine("Done writing data to database");
 			}
 			Console.WriteLine(result ? "Success" : "Failed");
 			Console.ReadKey();
@@ -53,3 +57,4 @@ namespace UpdateIndexFilesInS3
 		#endregion Private Methods
 	}
 }
+
