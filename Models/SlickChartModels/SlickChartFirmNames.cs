@@ -8,6 +8,7 @@ namespace Models.SlickChartModels
 		None   = 0b_0000_0000,
 		SnP    = 0b_0000_0001,
 		Nasdaq = 0b_0000_0010,
+		Index  = 0b_0000_0100,
 		Both   = SnP | Nasdaq
 	}
 	public class SlickChartFirmNames
