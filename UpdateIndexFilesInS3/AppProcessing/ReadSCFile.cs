@@ -21,14 +21,15 @@ namespace UpdateIndexFilesInS3.AppProcessing
 	public class ReadSCFile : IReadSCFile
 	{
 
+
 		#region Private Fields
 
 		private const string excelFileUrl = @"https://1drv.ms/x/s!ApMGIczTfCKAts9wQoWTXRE4-uz2hA?e=e4h8xg";
 
+		private const string IndexTracker = "Index Tracker";
 		private const string NASDAQ100 = "Nasdaq 100";
 
 		private const string SnP500 = "S&P 500";
-
 		private readonly IAppRepository<string> appRepository;
 		private readonly SheetProvider excelSheetAdapter;
 
@@ -68,6 +69,31 @@ namespace UpdateIndexFilesInS3.AppProcessing
 
 		#region Public Methods
 
+		public void AddIndexETFToPricingList()
+		{
+			slickChartFirmNames.AddRange(new List<SlickChartFirmNames>
+			{
+				new SlickChartFirmNames
+				{
+				Symbol = "SPY",
+				Company = "SPDR S&P 500 ETF Trust",
+				Index = ObtainIndexName(IndexTracker)
+				},
+				new SlickChartFirmNames
+				{
+				Symbol = "QQQ",
+				Company = "Invesco QQQ Trust Series 1",
+				Index = ObtainIndexName(IndexTracker)
+				},
+				new SlickChartFirmNames
+				{
+				Symbol = "DIA",
+				Company = "SPDR Dow Jones Industrial Average ETF Trust",
+				Index = ObtainIndexName(IndexTracker)
+				}
+			});
+		}
+
 		public async Task<bool> ExtractValuesFromMasterSheet()
 		{
 			fileFullPath = await CopyFileFromOneDrive();
@@ -99,8 +125,9 @@ namespace UpdateIndexFilesInS3.AppProcessing
 				IAPPDoc aPPDoc = scfnDB[i];
 				scfnDB[i] = (SlickChartFirmNamesDB)DBValuesSetup.SetAppDocValues(aPPDoc);
 			}
-			await appRepository.DeleteManyAsync<SlickChartFirmNamesDB>(r => r.ComputeDate < scfnDB[0].ComputeDate);
+			await appRepository.DeleteManyAsync<SlickChartFirmNamesDB>(r => r.ComputeDate <= scfnDB[0].ComputeDate);
 			await appRepository.AddManyAsync(scfnDB);
+			await DBValuesSetup.CreateIndex<SlickChartFirmNamesDB>(appRepository);
 			return true;
 		}
 
@@ -121,7 +148,9 @@ namespace UpdateIndexFilesInS3.AppProcessing
 				case NASDAQ100:
 					indexNames |= IndexNames.Nasdaq;
 					break;
-
+				case IndexTracker:
+					indexNames |= IndexNames.Index;
+					break;
 				default:
 					indexNames = IndexNames.None;
 					break;
@@ -191,5 +220,6 @@ namespace UpdateIndexFilesInS3.AppProcessing
 		}
 
 		#endregion Private Methods
+
 	}
 }
