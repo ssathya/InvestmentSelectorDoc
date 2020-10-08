@@ -8,6 +8,7 @@ using MongoRepository.Model.AppModel;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
 using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -54,26 +55,38 @@ namespace DailyPriceFetch.Process
 
 		public async Task<bool> GetPricingData()
 		{
-			List<string> securityList = await GetTickerList();
-			if (securityList == null || securityList.Count == 0)
+			try
 			{
-				return false;
-			}
-			var queryTickers = string.Join(',', securityList);
-			string urlStr = quotesAPI.Replace(@"{tickersToUse}", queryTickers)
-										.Replace(@"{apiKey}", apiKey);
-			string tdaResponse = await client.GetStringAsync(urlStr);
-			if (tdaResponse.IsNullOrWhiteSpace())
-			{
-				return false;
-			}
-			//logger.LogDebug(tdaResponse);
-			List<DailyPriceDB> currentPricesDB = ConvertPriceJsonToObjects(tdaResponse);
+				List<string> securityList = await GetTickerList();
+				if (securityList == null || securityList.Count == 0)
+				{
+					return false;
+				}
+				var queryTickers = string.Join(',', securityList);
+				string urlStr = quotesAPI.Replace(@"{tickersToUse}", queryTickers)
+											.Replace(@"{apiKey}", apiKey);
+				string tdaResponse = await client.GetStringAsync(urlStr);
+				if (tdaResponse.IsNullOrWhiteSpace())
+				{
+					return false;
+				}
+				//logger.LogDebug(tdaResponse);
+				List<DailyPriceDB> currentPricesDB = ConvertPriceJsonToObjects(tdaResponse);
+				var listOfSymbols = from a in currentPricesDB
+									select a.Symbol;
+				//await appRepository.DeleteManyAsync<DailyPriceDB>(r => r.ComputeDate != currentPricesDB[0].ComputeDate);
 
-			await appRepository.DeleteManyAsync<DailyPriceDB>(r => r.ComputeDate != currentPricesDB[0].ComputeDate);
-			await appRepository.AddManyAsync(currentPricesDB);
-			await DBValuesSetup.CreateIndex<DailyPriceDB>(appRepository);
-			return true;
+				var recordsDeleted = await appRepository.DeleteManyAsync<DailyPriceDB>(r => listOfSymbols.Contains(r.Symbol));
+				await appRepository.AddManyAsync(currentPricesDB);
+				await DBValuesSetup.CreateIndex<DailyPriceDB>(appRepository);
+				return true;
+			}
+			catch (Exception ex)
+			{
+				logger.LogError("Issues getting data from TDA");
+				logger.LogError($"Error details \n\t{ex.Message}");
+				return false;
+			}
 		}
 
 		private List<DailyPriceDB> ConvertPriceJsonToObjects(string tdaResponse)
@@ -110,29 +123,38 @@ namespace DailyPriceFetch.Process
 		private async Task<List<string>> GetTickerList()
 		{
 			List<string> returnValues = null;
-			if (queueUrlResponse.HttpStatusCode != HttpStatusCode.OK)
+
+			try
 			{
-				logger.LogError("Could not open Queue");
-				return returnValues;
+				if (queueUrlResponse.HttpStatusCode != HttpStatusCode.OK)
+				{
+					logger.LogError("Could not open Queue");
+					return returnValues;
+				}
+				var receiveMessageRequest = new ReceiveMessageRequest
+				{
+					QueueUrl = queueUrlResponse.QueueUrl
+				};
+				var receiveMessageResponse = await sqs.ReceiveMessageAsync(receiveMessageRequest);
+				if (receiveMessageResponse.Messages.Count == 0)
+				{
+					logger.LogInformation("No message to process");
+					return returnValues;
+				}
+				string tickerJson = ExtractTickersFromQueue(receiveMessageResponse);
+				if (tickerJson.IsNullOrWhiteSpace())
+				{
+					logger.LogInformation("Message body happens to be empty");
+					return returnValues;
+				}
+				await DeleteExtractedQueue(receiveMessageResponse);
+				returnValues = JsonSerializer.Deserialize<List<string>>(tickerJson);
 			}
-			var receiveMessageRequest = new ReceiveMessageRequest
+			catch (Exception ex)
 			{
-				QueueUrl = queueUrlResponse.QueueUrl
-			};
-			var receiveMessageResponse = await sqs.ReceiveMessageAsync(receiveMessageRequest);
-			if (receiveMessageResponse.Messages.Count == 0)
-			{
-				logger.LogInformation("No message to process");
-				return returnValues;
+				logger.LogError("Error while extracting values from SQS");
+				logger.LogError($"Error details\n\t{ex.Message}");
 			}
-			string tickerJson = ExtractTickersFromQueue(receiveMessageResponse);
-			if (tickerJson.IsNullOrWhiteSpace())
-			{
-				logger.LogInformation("Message body happens to be empty");
-				return returnValues;
-			}
-			await DeleteExtractedQueue(receiveMessageResponse);
-			returnValues = JsonSerializer.Deserialize<List<string>>(tickerJson);
 			return returnValues;
 		}
 

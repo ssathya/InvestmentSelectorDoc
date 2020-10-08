@@ -9,7 +9,7 @@ namespace RunLambdaService
 		{
 			Console.WriteLine("Test Start");
 			var function = new Function();
-			var result = function.FunctionHandler("How is it going");
+			var result = function.FunctionHandler();
 			Console.WriteLine("Test end");
 			Console.WriteLine(result);
 		}

@@ -92,16 +92,25 @@ namespace DailyPriceFetch.Process
 
 		private async Task SaveCurrentRunDate()
 		{
-			await appRepository.DeleteOneAsync<RunDateSaveDB>(r => r.Symbol.Equals(PricingDataKey));
-			var currentRunDateSave = new RunDateSave
+
+			try
 			{
-				ProcessName = PricingDataKey,
-				LastRunTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-			};
-			var currentRunDateSaveDb = mapper.Map<RunDateSaveDB>(currentRunDateSave);
-			currentRunDateSaveDb = (RunDateSaveDB)DBValuesSetup.SetAppDocValues(currentRunDateSaveDb);
-			await appRepository.AddOneAsync<RunDateSaveDB>(currentRunDateSaveDb);
-			await DBValuesSetup.CreateIndex<RunDateSaveDB>(appRepository);
+				await appRepository.DeleteOneAsync<RunDateSaveDB>(r => r.Symbol.Equals(PricingDataKey));
+				var currentRunDateSave = new RunDateSave
+				{
+					ProcessName = PricingDataKey,
+					LastRunTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+				};
+				var currentRunDateSaveDb = mapper.Map<RunDateSaveDB>(currentRunDateSave);
+				currentRunDateSaveDb = (RunDateSaveDB)DBValuesSetup.SetAppDocValues(currentRunDateSaveDb);
+				await appRepository.AddOneAsync<RunDateSaveDB>(currentRunDateSaveDb);
+				await DBValuesSetup.CreateIndex<RunDateSaveDB>(appRepository);
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Error while updating Run Date for {PricingDataKey}");
+				logger.LogError($"Error details \n\t{ex.Message}");
+			}
 		}
 
 		private async Task<bool> StoreValuesInQueue(int chunckSize, List<string> symbols)

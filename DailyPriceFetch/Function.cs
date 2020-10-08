@@ -2,7 +2,6 @@ using Amazon.Lambda.Core;
 using AutoMapper;
 using DailyPriceFetch.Process;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
@@ -27,7 +26,7 @@ namespace DailyPriceFetch
 		/// <param name="context"></param>
 		/// <returns></returns>
 		//public string FunctionHandler(string input, ILambdaContext context)
-		public string FunctionHandler(string input)
+		public string FunctionHandler()
 		{
 			var nonWorkingDatys = ExchangeCalendar.GetAllNonWorkingDays(DateTime.Now.Year);
 			if (nonWorkingDatys.FirstOrDefault(x => x.Date == DateTime.Now.Date) != null)
@@ -35,14 +34,20 @@ namespace DailyPriceFetch
 				return $"Today is not a working day {DateTime.Now.Date}";
 			}
 
+			//House keeping
 			var serviceCollection = new ServiceCollection();
 			ConfigureServices(serviceCollection);
 			var serviceProvider = serviceCollection.BuildServiceProvider();
+
+			//Populate SQS if needed.
 			var popSQS = serviceProvider.GetService<IPopulateSQS>();
 			var result = popSQS.PopulateSQSQueue(90).Result;
+
+			//Update prices
 			var sps = serviceProvider.GetService<ISecurityPriceSave>();
 			var result1 = sps.GetPricingData().Result;
-			return result && result1 ? input?.ToUpper() : input?.ToLower();			
+
+			return (result ? "Everything ran well" : "Something is wrong today");
 		}
 
 		private void ConfigureServices(IServiceCollection serviceCollection)
