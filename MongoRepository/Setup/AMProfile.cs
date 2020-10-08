@@ -42,7 +42,7 @@ namespace MongoRepository.Setup
 				.ForMember(d => d.ComputeDate, s => s.Ignore())
 				.ReverseMap();
 			CreateMap<SlickChartFirmNames, SlickChartFirmNamesDB>()
-				.ForMember(d=>d.Id, s=>s.Ignore())
+				.ForMember(d => d.Id, s => s.Ignore())
 				.ForMember(d => d.Version, s => s.Ignore())
 				.ForMember(d => d.ComputeDate, s => s.Ignore())
 				.ReverseMap();
