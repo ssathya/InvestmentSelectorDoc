@@ -2,6 +2,7 @@ using Amazon.Lambda.Core;
 using AutoMapper;
 using DailyPriceFetch.Process;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
@@ -38,11 +39,13 @@ namespace DailyPriceFetch
 			ConfigureServices(serviceCollection);
 			var serviceProvider = serviceCollection.BuildServiceProvider();
 			var popSQS = serviceProvider.GetService<IPopulateSQS>();
-			var result = popSQS.PopulateSQSQueue(50).Result;
-			return result ? input?.ToUpper() : input?.ToLower();			
+			var result = popSQS.PopulateSQSQueue(90).Result;
+			var sps = serviceProvider.GetService<ISecurityPriceSave>();
+			var result1 = sps.GetPricingData().Result;
+			return result && result1 ? input?.ToUpper() : input?.ToLower();			
 		}
 
-		private void ConfigureServices(ServiceCollection serviceCollection)
+		private void ConfigureServices(IServiceCollection serviceCollection)
 		{
 			SetApplicationEnvVar.SetEnvVariablesFromS3();
 			var mongoURL = EnvHandler.GetApiKey("InvestDb");
@@ -58,6 +61,8 @@ namespace DailyPriceFetch
 				.Configure<LoggerFilterOptions>(o => o.MinLevel = LogLevel.Debug)
 				.AddTransient(typeof(ILogger<>), typeof(Logger<>));
 			serviceCollection.AddScoped<IPopulateSQS, PopulateSQS>();
+			serviceCollection.AddScoped<ISecurityPriceSave, SecurityPriceSave>();
+			serviceCollection.AddHttpClient();
 		}
 	}
 }
