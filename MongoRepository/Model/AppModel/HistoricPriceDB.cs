@@ -1,7 +1,9 @@
 ﻿using Models.AppModel;
+using MongoDbGenericRepository.Attributes;
 
 namespace MongoRepository.Model.AppModel
 {
+	[CollectionName("TDHistPriceDb")]
 	public class HistoricPriceDB : HistoricPrice, IAPPDoc
 	{
 		public long ComputeDate { get; set; }

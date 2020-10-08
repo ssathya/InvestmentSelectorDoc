@@ -44,7 +44,7 @@ namespace Utilities.TradingCal
 				yield return i;
 			}
 		}
-		
+
 
 		public static DateTime GetEasterSunday(int year)
 		{

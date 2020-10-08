@@ -6,6 +6,7 @@ using MongoRepository.Model;
 using MongoRepository.Repository;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Utilities.AppEnv;
 
@@ -15,13 +16,15 @@ namespace ISRApiHandler.Controllers
 	[ApiController]
 	public abstract class BaseController<T, T1> : ControllerBase where T : IAPPDoc
 	{
-		#region Private Fields
 
-		private readonly IAppRepository<string> _appRepository;
-		private readonly ILogger _logger;
-		private readonly IMapper _mapper;
+		#region Protected Fields
 
-		#endregion Private Fields
+		protected readonly IAppRepository<string> _appRepository;
+		protected readonly ILogger _logger;
+		protected readonly IMapper _mapper;
+
+		#endregion Protected Fields
+
 
 		#region Public Constructors
 
@@ -33,6 +36,7 @@ namespace ISRApiHandler.Controllers
 		}
 
 		#endregion Public Constructors
+
 
 		#region Public Methods
 
@@ -72,10 +76,10 @@ namespace ISRApiHandler.Controllers
 		{
 			try
 			{
-				long curtoffTime = DateTimeOffset.Now.AddDays(-1).UtcTicks;
+				long curtoffTime = DateTimeOffset.Now.AddDays(-1).ToUnixTimeSeconds();
 				var records = await _appRepository.GetAllAsync<T>(r => r.ComputeDate >= curtoffTime);
 				var retRcds = _mapper.Map<List<T1>>(records);
-				return Ok(retRcds);
+				return Ok(retRcds.Take(10));
 			}
 			catch (Exception ex)
 			{
@@ -87,6 +91,7 @@ namespace ISRApiHandler.Controllers
 		[HttpGet("{symbol}")]
 		public virtual async Task<IActionResult> Get(string symbol)
 		{
+			symbol = symbol.ToUpper();
 			try
 			{
 				var records = await _appRepository.GetAllAsync<T>(r => r.Symbol.Equals(symbol));
