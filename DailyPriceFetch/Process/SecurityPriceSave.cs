@@ -7,12 +7,14 @@ using Models.AppModel;
 using MongoRepository.Model.AppModel;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Utilities.AppEnv;
@@ -25,12 +27,15 @@ namespace DailyPriceFetch.Process
 
 		private const string QueueName = "PricingList";
 		private readonly string apiKey;
+		private readonly string IsrKey;
 		private readonly IAppRepository<string> appRepository;
 		private readonly HttpClient client;
 		private readonly ILogger<SecurityPriceSave> logger;
 		private readonly IMapper mapper;
 		private readonly GetQueueUrlResponse queueUrlResponse;
 		private readonly string quotesAPI = @"https://api.tdameritrade.com/v1/marketdata/quotes?apikey={apiKey}&symbol={tickersToUse}";
+		private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
+		private  List<string> securityList;
 		private readonly IAmazonSQS sqs;
 
 		public SecurityPriceSave(ILogger<SecurityPriceSave> logger,
@@ -51,13 +56,93 @@ namespace DailyPriceFetch.Process
 
 			//TDA
 			apiKey = EnvHandler.GetApiKey(@"tdameritrade");
+
+			//API Gateway key
+			IsrKey = EnvHandler.GetApiKey(@"ISRApiHandler");
+
+			//Security list
+			securityList = GetTickerList().Result;
+			if (securityList == null || securityList.Count == 0)
+			{
+				securityList = new List<string>
+				{
+					"MSFT",
+					"AAPL",
+					"FDX",
+					"UPS",
+					"CRM"
+				};				
+			}
+		}
+
+		public async Task<bool> ComputeSecurityAnalysis()
+		{
+			if (securityList == null || securityList.Count == 0)
+			{				
+				return false;
+			}
+			//var queryTickers = string.Join(',', securityList);
+
+			var historicPrices = await appRepository.GetAllAsync<HistoricPriceDB>(r => securityList.Contains(r.Symbol));
+			foreach (var historicPrice in historicPrices)
+			{
+				historicPrice.ComputeDate = historicPrice.ComputeDate >= 999999999999 ?
+					historicPrice.ComputeDate /= 1000 : historicPrice.ComputeDate;
+			}
+			if (historicPrices.Count != securityList.Count)
+			{
+				var missingTickers = string.Join(',',securityList.Except(historicPrices.Select(r => r.Symbol)));
+				logger.LogInformation("Historic price and security list are not in sync");
+				logger.LogInformation(missingTickers);
+			}
+			foreach (var security in securityList)
+			{
+				HistoricPrice historicPrice = await ObtainHistoricPrice(security);
+				SecurityAnalysis securityAnalysis = ComputeValues(historicPrice);
+			}
+			return true;
+			throw new NotImplementedException();
+		}
+
+		private SecurityAnalysis ComputeValues(HistoricPrice historicPrice)
+		{
+
+			throw new NotImplementedException();
+		}
+
+		private async Task<HistoricPrice> ObtainHistoricPrice(string security)
+		{
+			var queryHistoricPrice = historicPriceAPI.Replace(@"{tickersToUse}", security);
+			var drh = client.DefaultRequestHeaders;
+			if (!drh.Contains(@"x-api-key"))
+			{
+				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
+			}			
+			try
+			{
+				var response = await client.GetAsync(queryHistoricPrice);
+				if (!response.IsSuccessStatusCode)
+				{
+					logger.LogError($"Error while getting historic price; \n\tError code: {response.StatusCode}");
+					logger.LogError($"{response.ReasonPhrase}");
+					return null;
+				}
+				string apiResponse = await response.Content.ReadAsStringAsync();
+				var historicPrices = JsonConvert.DeserializeObject<List<HistoricPrice>>(apiResponse);
+				return historicPrices.FirstOrDefault();
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
+				return null;
+			}		
 		}
 
 		public async Task<bool> GetPricingData()
 		{
 			try
 			{
-				List<string> securityList = await GetTickerList();
+				
 				if (securityList == null || securityList.Count == 0)
 				{
 					return false;
@@ -73,8 +158,7 @@ namespace DailyPriceFetch.Process
 				//logger.LogDebug(tdaResponse);
 				List<DailyPriceDB> currentPricesDB = ConvertPriceJsonToObjects(tdaResponse);
 				var listOfSymbols = from a in currentPricesDB
-									select a.Symbol;
-				//await appRepository.DeleteManyAsync<DailyPriceDB>(r => r.ComputeDate != currentPricesDB[0].ComputeDate);
+									select a.Symbol;				
 
 				var recordsDeleted = await appRepository.DeleteManyAsync<DailyPriceDB>(r => listOfSymbols.Contains(r.Symbol));
 				await appRepository.AddManyAsync(currentPricesDB);
@@ -148,7 +232,7 @@ namespace DailyPriceFetch.Process
 					return returnValues;
 				}
 				await DeleteExtractedQueue(receiveMessageResponse);
-				returnValues = JsonSerializer.Deserialize<List<string>>(tickerJson);
+				returnValues = System.Text.Json.JsonSerializer.Deserialize<List<string>>(tickerJson);
 			}
 			catch (Exception ex)
 			{

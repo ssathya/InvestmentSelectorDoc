@@ -43,6 +43,7 @@ namespace ISRApiHandler.Controllers
 		[HttpDelete("{symbol}")]
 		public virtual async Task<ActionResult> Delete(string symbol)
 		{
+			symbol = symbol.ToUpper();
 			try
 			{
 				var result = await _appRepository.DeleteManyAsync<T>(r => r.Symbol.Equals(symbol));

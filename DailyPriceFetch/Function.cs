@@ -41,11 +41,13 @@ namespace DailyPriceFetch
 
 			//Populate SQS if needed.
 			var popSQS = serviceProvider.GetService<IPopulateSQS>();
-			var result = popSQS.PopulateSQSQueue(90).Result;
+			//var result = popSQS.PopulateSQSQueue(90).Result;
+			bool result = true;
 
 			//Update prices
 			var sps = serviceProvider.GetService<ISecurityPriceSave>();
-			var result1 = sps.GetPricingData().Result;
+			//var result1 = sps.GetPricingData().Result;
+			var result1 = sps.ComputeSecurityAnalysis().Result;
 
 			return (result ? "Everything ran well" : "Something is wrong today");
 		}

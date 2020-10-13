@@ -22,7 +22,7 @@ namespace ISRApiHandler.Tools
 		//	return analysis;
 		//}
 
-		private static DateTimeOffset ComputeRunDate()
+		public static DateTimeOffset ComputeRunDate()
 		{
 			TimeZoneInfo est;
 			string timeZoneLinux = "America/New_York";
