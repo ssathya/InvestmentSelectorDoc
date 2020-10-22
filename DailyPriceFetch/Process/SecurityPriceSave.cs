@@ -174,6 +174,7 @@ namespace DailyPriceFetch.Process
 
 			securityAnalysis.DollarVolumeAverage = ComputeDollarVolume(historicPrice);
 			securityAnalysis.EfficiencyRatio = ComputeEfficiencyRatio(historicPrice);
+			logger.LogDebug($"{historicPrice.Symbol} => Dollar Volume: {securityAnalysis.DollarVolumeAverage:C} Efficiency Ratio: {securityAnalysis.EfficiencyRatio:F}");
 			return securityAnalysis;
 		}
 
@@ -192,7 +193,7 @@ namespace DailyPriceFetch.Process
 				 high: candle.High,
 				 low: candle.Low,
 				 close: candle.Close,
-				 candle.Volume)).OrderBy(r => r.DateTime).ToList();			
+				 candle.Volume)).OrderBy(r => r.DateTime).ToList();
 			var efficiencyRatio = Convert.ToDouble(recordsToUse.Er(recordsToCount).Last().Tick ?? 0) * 100.0;
 			return efficiencyRatio;
 		}
