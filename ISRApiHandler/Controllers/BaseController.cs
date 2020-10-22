@@ -1,9 +1,9 @@
 ﻿using AutoMapper;
-using ISRApiHandler.Tools;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using MongoRepository.Model;
 using MongoRepository.Repository;
+using MongoRepository.Setup;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -43,6 +43,7 @@ namespace ISRApiHandler.Controllers
 		[HttpDelete("{symbol}")]
 		public virtual async Task<ActionResult> Delete(string symbol)
 		{
+			symbol = symbol.ToUpper();
 			try
 			{
 				var result = await _appRepository.DeleteManyAsync<T>(r => r.Symbol.Equals(symbol));
@@ -55,9 +56,11 @@ namespace ISRApiHandler.Controllers
 			}
 		}
 
-		[HttpDelete("{parameter}")]
-		public virtual async Task<ActionResult> Delete(DateTimeOffset parameter)
+		[HttpDelete("{year}/{month}/{date}")]
+		public virtual async Task<ActionResult> Delete(int year, int month, int date)
 		{
+			var tmpDate = DateTime.SpecifyKind(new DateTime(year, month, date), DateTimeKind.Utc);
+			var parameter = new DateTimeOffset(new DateTime(year, month, date));
 			try
 			{
 				var cutOffTime = parameter.ToUniversalTime().ToUnixTimeSeconds();
@@ -112,15 +115,17 @@ namespace ISRApiHandler.Controllers
 			{
 				return StatusCode(StatusCodes.Status422UnprocessableEntity, "Can't processable Entities");
 			}
-			var recordsToSave = _mapper.Map<List<T>>(newRecords);
-			for (int i = 0; i < recordsToSave.Count; i++)
-			{
-				IAPPDoc curRcd = recordsToSave[i];
-				recordsToSave[i] = (T)DBValuesSetup.SetAppDocValues(curRcd);
-			}
+			
 			try
 			{
+				var recordsToSave = _mapper.Map<List<T>>(newRecords);
+				for (int i = 0; i < recordsToSave.Count; i++)
+				{
+					IAPPDoc curRcd = recordsToSave[i];
+					recordsToSave[i] = (T)DBValuesSetup.SetAppDocValues(curRcd);
+				}
 				await _appRepository.AddManyAsync(recordsToSave);
+				await DBValuesSetup.CreateIndex<T>(_appRepository);
 			}
 			catch (Exception ex)
 			{

@@ -125,7 +125,7 @@ namespace UpdateIndexFilesInS3.AppProcessing
 				IAPPDoc aPPDoc = scfnDB[i];
 				scfnDB[i] = (SlickChartFirmNamesDB)DBValuesSetup.SetAppDocValues(aPPDoc);
 			}
-			await appRepository.DeleteManyAsync<SlickChartFirmNamesDB>(r => r.ComputeDate <= scfnDB[0].ComputeDate);
+			var deleteCount = await appRepository.DeleteManyAsync<SlickChartFirmNamesDB>(r => r.ComputeDate <= scfnDB[0].ComputeDate);
 			await appRepository.AddManyAsync(scfnDB);
 			await DBValuesSetup.CreateIndex<SlickChartFirmNamesDB>(appRepository);
 			return true;
