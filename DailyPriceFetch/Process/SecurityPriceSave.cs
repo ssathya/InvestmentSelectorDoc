@@ -2,7 +2,6 @@
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using AutoMapper;
-using DailyPriceFetch.Compute;
 using Microsoft.Extensions.Logging;
 using Models.AppModel;
 using MongoRepository.Model.AppModel;
@@ -17,7 +16,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Trady.Analysis.Extension;
-using Trady.Core.Infrastructure;
 using Utilities.AppEnv;
 using Utilities.StringHelpers;
 
@@ -97,7 +95,7 @@ namespace DailyPriceFetch.Process
 				{
 					logger.LogInformation($"{security} has too little historic information");
 					continue;
-				}				
+				}
 				foreach (var candle in hp.Candles)
 				{
 					candle.Datetime = candle.Datetime >= 999999999999 ?
@@ -174,9 +172,32 @@ namespace DailyPriceFetch.Process
 				Symbol = historicPrice.Symbol
 			};
 
-			securityAnalysis.DollarVolumeAverage = ComputeDollarVolume(historicPrice);		
+			securityAnalysis.DollarVolumeAverage = ComputeDollarVolume(historicPrice);
+			securityAnalysis.EfficiencyRatio = ComputeEfficiencyRatio(historicPrice);
+			logger.LogDebug($"{historicPrice.Symbol} => Dollar Volume: {securityAnalysis.DollarVolumeAverage:C} Efficiency Ratio: {securityAnalysis.EfficiencyRatio:F}");
 			return securityAnalysis;
 		}
+
+		private double ComputeEfficiencyRatio(HistoricPrice historicPrice)
+		{
+			// We are computing efficiency ratio based on prices for the last one month.
+			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
+			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
+			var oneMonthAgoSecs = new DateTimeOffset(oneMonthAgo).ToUnixTimeSeconds();
+			var recordsToCount = candles.Where(r => r.Datetime >= oneMonthAgoSecs).Count();
+			var recordsToUse =
+			(from candle in candles
+			 select new Trady.Core.Candle(
+				 dateTime: DateTimeOffset.FromUnixTimeSeconds(candle.Datetime),
+				 open: candle.Open,
+				 high: candle.High,
+				 low: candle.Low,
+				 close: candle.Close,
+				 candle.Volume)).OrderBy(r => r.DateTime).ToList();
+			var efficiencyRatio = Convert.ToDouble(recordsToUse.Er(recordsToCount).Last().Tick ?? 0) * 100.0;
+			return efficiencyRatio;
+		}
+
 		private List<DailyPriceDB> ConvertPriceJsonToObjects(string tdaResponse)
 		{
 			var jobjs = JObject.Parse(tdaResponse).SelectTokens(@"$.*");
