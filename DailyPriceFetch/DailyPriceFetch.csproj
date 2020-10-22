@@ -5,10 +5,11 @@
     <AWSProjectType>Lambda</AWSProjectType>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Amazon.Lambda.Core" Version="1.1.0" />
-    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.0.2" />
-    <PackageReference Include="AutoMapper" Version="10.0.0" />
-    <PackageReference Include="AWSSDK.SQS" Version="3.5.0.26" />
+    <PackageReference Include="Amazon.Lambda.Core" Version="1.2.0" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.1.0" />
+    <PackageReference Include="AutoMapper" Version="10.1.1" />
+    <PackageReference Include="AWSSDK.SQS" Version="3.5.0.30" />
+    <PackageReference Include="MathNet.Numerics" Version="4.12.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="5.0.0-rc.2.20475.5" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="5.0.0-rc.2.20475.5" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="5.0.0-rc.2.20475.5" />

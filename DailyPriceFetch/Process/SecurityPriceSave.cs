@@ -2,6 +2,7 @@
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using AutoMapper;
+using MathNet.Numerics;
 using Microsoft.Extensions.Logging;
 using Models.AppModel;
 using MongoRepository.Model.AppModel;
@@ -74,7 +75,17 @@ namespace DailyPriceFetch.Process
 					"UPS",
 					"CRM",
 					"DAL",
-					"AAL"
+					"AAL",					
+					"C",
+					"ZM",
+					"TSLA",
+					"MRNA",
+					"DOCU",
+					"NVDA",
+					"JD",
+					"PDD",
+					"DXCM"
+
 				};
 				//securityList = appRepository.GetAll<SlickChartFirmNamesDB>(r => r.Index != IndexNames.Index).Select(r => r.Symbol).ToList();
 			}
@@ -103,6 +114,10 @@ namespace DailyPriceFetch.Process
 				}
 				SecurityAnalysis sa = ComputeValues(hp);
 				securityAnalyses.Add(sa);
+			}
+			foreach (var analysis in securityAnalyses)
+			{
+				logger.LogDebug($"{analysis.Symbol} => Dollar Volume: {analysis.DollarVolumeAverage:C} Efficiency Ratio: {analysis.EfficiencyRatio:F} Momentum: {analysis.Momentum:F} Volatility: {analysis.ThirtyDayVolatility:F}");
 			}
 			return true;
 		}
@@ -154,7 +169,6 @@ namespace DailyPriceFetch.Process
 				  low: candle.Low * candle.Volume,
 				  close: candle.Close * candle.Volume,
 				  candle.Volume)).OrderBy(r => r.DateTime);
-				logger.LogDebug($"Min dollar volume for {historicPrice.Symbol} is {computeCandles.Max(x => x.Close)} and min is {computeCandles.Min(x => x.Close)}");
 				return Convert.ToDouble(computeCandles.Ema(30).Last().Tick ?? 0.0M);
 			}
 			catch (Exception ex)
@@ -174,8 +188,38 @@ namespace DailyPriceFetch.Process
 
 			securityAnalysis.DollarVolumeAverage = ComputeDollarVolume(historicPrice);
 			securityAnalysis.EfficiencyRatio = ComputeEfficiencyRatio(historicPrice);
-			logger.LogDebug($"{historicPrice.Symbol} => Dollar Volume: {securityAnalysis.DollarVolumeAverage:C} Efficiency Ratio: {securityAnalysis.EfficiencyRatio:F}");
+			ComputeMomentum(historicPrice, out double momentum, out double volatility);
+			securityAnalysis.Momentum = momentum;
+			//securityAnalysis.ThirtyDayVolatility = volatility;
+			ComputeVolatility(historicPrice, out volatility, out double inverseVolatility);
+			securityAnalysis.ThirtyDayVolatility = volatility;
+			securityAnalysis.VolatilityInverse = inverseVolatility;
 			return securityAnalysis;
+		}
+
+		private void ComputeVolatility(HistoricPrice historicPrice, out double volatility, out double inverseVolatility)
+		{
+			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
+			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
+			var oneMonthRecords = candles
+				.Where(r => r.Datetime >= new DateTimeOffset(oneMonthAgo)
+				.ToUnixTimeSeconds()).Select(r => (double)r.Close);
+			volatility = Compute.ComputeMomentum.CalculateRsi(oneMonthRecords);
+			volatility = Math.Sqrt(oneMonthRecords.Average(z => z * z) - Math.Pow(oneMonthRecords.Average(), 2));
+			inverseVolatility = 1.0 / volatility;			
+		}
+
+		private void ComputeMomentum(HistoricPrice historicPrice, out double momentum, out double volatility)
+		{
+			var closingPrices = historicPrice.Candles.Select(r => Math.Log((double)r.Close)).ToArray();
+			var seqNumbers = Enumerable.Range(0, closingPrices.Count()).Select<int, double>(i => i).ToArray();
+			var leastSquaresFitting = Fit.Line(seqNumbers, closingPrices);
+			var correlationCoff = GoodnessOfFit.R(seqNumbers, closingPrices);
+			var annualizedSlope = (Math.Pow(Math.Exp(leastSquaresFitting.Item2), 252) - 1) * 100;
+			var score = annualizedSlope * correlationCoff * correlationCoff;
+			momentum = score;
+			var r = Math.Exp(leastSquaresFitting.Item2) * correlationCoff * correlationCoff * 100;
+			volatility = r;
 		}
 
 		private double ComputeEfficiencyRatio(HistoricPrice historicPrice)
