@@ -26,7 +26,7 @@ namespace ISRApiHandler
 		}
 		internal static void SetupAutoMapper(this IServiceCollection services)
 		{
-			services.AddAutoMapper(typeof(Startup));
+			services.AddAutoMapper(typeof(AMProfile));
 			MapperConfiguration config = new MapperConfiguration(cfg =>
 			{
 				cfg.AddProfile<AMProfile>();

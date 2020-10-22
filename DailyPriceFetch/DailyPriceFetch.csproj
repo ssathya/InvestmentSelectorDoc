@@ -8,14 +8,16 @@
     <PackageReference Include="Amazon.Lambda.Core" Version="1.1.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.0.2" />
     <PackageReference Include="AutoMapper" Version="10.0.0" />
-    <PackageReference Include="AWSSDK.SQS" Version="3.5.0.25" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="5.0.0-rc.1.20451.14" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="5.0.0-rc.1.20451.14" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="5.0.0-rc.1.20451.14" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="5.0.0-rc.1.20451.14" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="5.0.0-rc.1.20451.14" />
+    <PackageReference Include="AWSSDK.SQS" Version="3.5.0.26" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="5.0.0-rc.2.20475.5" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="5.0.0-rc.2.20475.5" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="5.0.0-rc.2.20475.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="5.0.0-rc.2.20475.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="5.0.0-rc.2.20475.5" />
     <PackageReference Include="NLog.Config" Version="4.7.5" />
     <PackageReference Include="NLog.Extensions.Logging" Version="1.6.5" />
+    <PackageReference Include="Trady.Analysis" Version="3.2.8" />
+    <PackageReference Include="Trady.Core" Version="3.2.9" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Models\Models.csproj" />
