@@ -90,7 +90,6 @@ namespace DailyPriceFetch.Process
 				//securityList = appRepository.GetAll<SlickChartFirmNamesDB>(r => r.Index != IndexNames.Index).Select(r => r.Symbol).ToList();
 			}
 		}
-
 		public async Task<bool> ComputeSecurityAnalysis()
 		{
 			if (securityList == null || securityList.Count == 0)
