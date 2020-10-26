@@ -15,8 +15,33 @@ namespace MongoRepository.Setup
 
 		#endregion Private Fields
 
+		#region Public Methods
 
-		#region Public Methods		
+		/// <summary>
+		/// Computes the run date.
+		/// </summary>
+		/// <returns></returns>
+		public static DateTimeOffset ComputeRunDate()
+		{
+			TimeZoneInfo est;
+			string timeZoneLinux = "America/New_York";
+			string timeZoneWindows = "Eastern Standard Time";
+			if (linuxTimeZoneInfo == null && windowsTimeZoneInfo == null)
+			{
+				linuxTimeZoneInfo ??= ObtainTimeZoneInfo(timeZoneLinux);
+				windowsTimeZoneInfo ??= ObtainTimeZoneInfo(timeZoneWindows);
+			}
+			est = linuxTimeZoneInfo ?? windowsTimeZoneInfo;
+
+			var nowTimeAtNY = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
+			//Make it 1 or 2 A.M. at NY based on DST
+			nowTimeAtNY = TimeZoneInfo.ConvertTimeToUtc(nowTimeAtNY, est)
+				.Date.AddHours(6);
+			//nowTimeAtNY = TimeZoneInfo.ConvertTime(nowTimeAtNY, est).Date.AddSeconds(1);
+			var nowTimeAtNYOffset = new DateTimeOffset(nowTimeAtNY);
+			return nowTimeAtNYOffset;
+		}
+
 		/// <summary>
 		/// Creates the index.
 		/// </summary>
@@ -40,6 +65,7 @@ namespace MongoRepository.Setup
 			}
 			return;
 		}
+
 		/// <summary>
 		/// Sets the application document values.
 		/// </summary>
@@ -58,32 +84,8 @@ namespace MongoRepository.Setup
 
 		#endregion Public Methods
 
+		#region Private Methods
 
-		#region Private Methods		
-		/// <summary>
-		/// Computes the run date.
-		/// </summary>
-		/// <returns></returns>
-		private static DateTimeOffset ComputeRunDate()
-		{
-			TimeZoneInfo est;
-			string timeZoneLinux = "America/New_York";
-			string timeZoneWindows = "Eastern Standard Time";
-			if (linuxTimeZoneInfo == null && windowsTimeZoneInfo == null)
-			{
-				linuxTimeZoneInfo ??= ObtainTimeZoneInfo(timeZoneLinux);
-				windowsTimeZoneInfo ??= ObtainTimeZoneInfo(timeZoneWindows);
-			}
-			est = linuxTimeZoneInfo ?? windowsTimeZoneInfo;
-
-			var nowTimeAtNY = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
-			//Make it 1 or 2 A.M. at NY based on DST
-			nowTimeAtNY = TimeZoneInfo.ConvertTimeToUtc(nowTimeAtNY, est)
-				.Date.AddHours(6);
-			//nowTimeAtNY = TimeZoneInfo.ConvertTime(nowTimeAtNY, est).Date.AddSeconds(1);
-			var nowTimeAtNYOffset = new DateTimeOffset(nowTimeAtNY);
-			return nowTimeAtNYOffset;
-		}
 		/// <summary>
 		/// Obtains the time zone information.
 		/// </summary>

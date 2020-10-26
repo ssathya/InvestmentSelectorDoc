@@ -39,20 +39,31 @@ namespace DailyPriceFetch
 			ConfigureServices(serviceCollection);
 			var serviceProvider = serviceCollection.BuildServiceProvider();
 
+			//Pricing
+			bool result = true;
+			result = GetPricingData(serviceProvider);
+
+			//Evaluate Securities
+			var evalSec = serviceProvider.GetService<IEvaluateSecurity>();
+			result = result && evalSec.ComputeSecurityAnalysis().Result;
+
+			return (result ? "Everything ran well" : "Something is wrong today");
+		}
+
+		private static bool GetPricingData(ServiceProvider serviceProvider)
+		{
 			//Populate SQS if needed.
 			var popSQS = serviceProvider.GetService<IPopulateSQS>();
-			//Uncomment after testing
-			//var result = popSQS.PopulateSQSQueue(90).Result;
-			bool result = true;
+
+			var result = popSQS.PopulateSQSQueue(90).Result;
+
 
 			//Update prices
 			var sps = serviceProvider.GetService<ISecurityPriceSave>();
 
-			//Uncomment after testing
-			//var result1 = sps.GetPricingData().Result;
-			var result1 = sps.ComputeSecurityAnalysis().Result;
 
-			return (result ? "Everything ran well" : "Something is wrong today");
+			var result1 = sps.GetPricingData().Result;
+			return result && result1;
 		}
 
 		private void ConfigureServices(IServiceCollection serviceCollection)
@@ -72,6 +83,7 @@ namespace DailyPriceFetch
 				.AddTransient(typeof(ILogger<>), typeof(Logger<>));
 			serviceCollection.AddScoped<IPopulateSQS, PopulateSQS>();
 			serviceCollection.AddScoped<ISecurityPriceSave, SecurityPriceSave>();
+			serviceCollection.AddScoped<IEvaluateSecurity, EvaluateSecurity>();
 			serviceCollection.AddHttpClient();
 		}
 	}

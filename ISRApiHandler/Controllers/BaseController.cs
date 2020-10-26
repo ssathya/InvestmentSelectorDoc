@@ -82,7 +82,7 @@ namespace ISRApiHandler.Controllers
 				long curtoffTime = DateTimeOffset.Now.AddDays(-1).ToUnixTimeSeconds();
 				var records = await _appRepository.GetAllAsync<T>(r => r.ComputeDate >= curtoffTime);
 				var retRcds = _mapper.Map<List<T1>>(records);
-				return Ok(retRcds.Take(10));
+				return Ok(retRcds);
 			}
 			catch (Exception ex)
 			{

@@ -1,10 +1,13 @@
-﻿using Amazon.Runtime.Internal.Util;
-using AutoMapper;
+﻿using AutoMapper;
+using MathNet.Numerics;
 using Microsoft.Extensions.Logging;
 using Models.AppModel;
+using Models.HouseKeeping;
 using Models.SlickChartModels;
+using MongoRepository.Model.AppModel;
 using MongoRepository.Model.HouseKeeping;
 using MongoRepository.Repository;
+using MongoRepository.Setup;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -12,21 +15,40 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
+using Trady.Analysis.Extension;
 using Utilities.AppEnv;
 
 namespace DailyPriceFetch.Process
 {
-    public class EvaluateSecurity
-    {
-		private readonly ILogger<EvaluateSecurity> logger;
-		private readonly IMapper mapper;
+	public class EvaluateSecurity : IEvaluateSecurity
+	{
+
+		#region Private Fields
+
+		private const int HoursToWait = 23;
+		private const string SecAnalKey = "Security Analysis";
+		private const int WindowPeriod = 120;
 		private readonly IAppRepository<string> appRepository;
 		private readonly HttpClient client;
-		private readonly string IsrKey;
-		private List<string> securityList;
-		private const string SecAnalKey = "Security Analysis";
-		private const int HoursToWait = 23;
+		private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
 		private readonly string indexListAPI = @"https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/SecurityList/DONTCARE/{IndexId}";
+		private readonly string IsrKey;
+		private readonly ILogger<EvaluateSecurity> logger;
+		private readonly IMapper mapper;
+		private readonly string securityAnalysisAPI = @"https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/SecurityAnalysis";
+		private List<string> securityList;
+
+		#endregion Private Fields
+
+
+		#region Public Properties
+
+		public List<SecurityAnalysis> SecurityAnalyses { get; private set; }
+
+		#endregion Public Properties
+
+
+		#region Public Constructors
 
 		public EvaluateSecurity(
 			ILogger<EvaluateSecurity> logger,
@@ -37,32 +59,242 @@ namespace DailyPriceFetch.Process
 			this.logger = logger;
 			this.mapper = mapper;
 			this.appRepository = appRepository;
-			
+
 			//HttpClient
 			client = clientFactory.CreateClient();
 
 			//API Gateway key
 			IsrKey = EnvHandler.GetApiKey(@"ISRApiHandler");
 		}
+
+		#endregion Public Constructors
+
+
+		#region Public Methods
+
 		public async Task<bool> ComputeSecurityAnalysis()
 		{
 			if (await CheckRunDateAsync() == false)
 			{
+				//already computed. Read from DB
+				await PopulateSecurityAnalysesViaAPI();
 				return true;
 			}
+			if (SecurityAnalyses == null || SecurityAnalyses.Count == 0)
+			{
+				SecurityAnalyses = new List<SecurityAnalysis>();
+			}
 			await PopulateSecurityListAsync();
+			if (securityList == null || securityList.Count == 0)
+			{
+				return false;
+			}
+			foreach (var security in securityList)
+			{
+				var hp = await ObtainHistoricPrice(security);
+				if (hp == null || hp.Candles == null || hp.Candles.Length <= WindowPeriod)
+				{
+					logger.LogInformation($"{security} has too little historic information");
+					continue;
+				}
+				var noOfCandles = hp.Candles.Count();
+				for (int i = 0; i < noOfCandles; i++)
+				{
+					hp.Candles[i].Datetime = hp.Candles[i].Datetime >= 999999999999 ?
+						hp.Candles[i].Datetime /= 1000 : hp.Candles[i].Datetime;
+				}
+				var sa = ComputeValues(hp);
+				if (sa != null)
+				{
+					SecurityAnalyses.Add(sa);
+				}
+			}
+			try
+			{
+				await SaveSecurityAnalyses();
+				await UpdateRunDateAsync();
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Issue while saving compute values\n\t{ex.Message}");
+				return false;
+			}
+			return true;
+		}
+
+		#endregion Public Methods
+
+
+		#region Private Methods
+
+		private async Task<bool> CheckRunDateAsync()
+		{
+			var lastUpdateTime = (await appRepository.GetAllAsync<RunDateSaveDB>(r => r.Symbol.Equals(SecAnalKey))).FirstOrDefault();
+			if (lastUpdateTime != null)
+			{
+				logger.LogDebug("Found last run record");
+				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
+				//If we ran this application within the past 23 - 24 hours don't run it again.
+				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= HoursToWait)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		private double ComputeDollarVolume(HistoricPrice hp)
+		{
+			try
+			{
+				var computeCandles = (from candle in hp.Candles
+									  select new Trady.Core.Candle(
+				  dateTime: DateTimeOffset.FromUnixTimeSeconds(candle.Datetime),
+				  open: candle.Open * candle.Volume,
+				  high: candle.High * candle.Volume,
+				  low: candle.Low * candle.Volume,
+				  close: candle.Close * candle.Volume,
+				  candle.Volume)).OrderBy(r => r.DateTime);
+				var a = computeCandles.FirstOrDefault();
+				return Convert.ToDouble(computeCandles.Ema(30).Last().Tick ?? 0.0M);
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Computing Dollar Volume for {hp.Symbol}");
+				logger.LogError($"Error while importing historic data for momentum compute; reason\n\t{ex.Message}");
+				return 0;
+			}
+		}
+
+		private double ComputeEfficiencyRatio(HistoricPrice hp)
+		{
+			// We are computing efficiency ratio based on prices for the last one month.
+			// Taking trouble to use last one month calendar days!
+			var candles = hp.Candles.OrderBy(r => r.Datetime);
+			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
+			var oneMonthAgoSecs = new DateTimeOffset(oneMonthAgo).ToUnixTimeSeconds();
+			var recordsToCount = candles.Where(r => r.Datetime >= oneMonthAgoSecs).Count();
+			var recordsToUse =
+			(from candle in candles
+			 select new Trady.Core.Candle(
+				 dateTime: DateTimeOffset.FromUnixTimeSeconds(candle.Datetime),
+				 open: candle.Open,
+				 high: candle.High,
+				 low: candle.Low,
+				 close: candle.Close,
+				 candle.Volume)).OrderBy(r => r.DateTime).ToList();
+			var efficiencyRatio = Convert.ToDouble(recordsToUse.Er(recordsToCount).Last().Tick ?? 0) * 100.0;
+			return efficiencyRatio;
+		}
+
+		private void ComputeMomentum(HistoricPrice historicPrice, out double momentum, out double volatility)
+		{
+			var closingPrices = historicPrice.Candles.Select(r => Math.Log((double)r.Close)).ToArray();
+			var seqNumbers = Enumerable.Range(0, closingPrices.Count()).Select<int, double>(i => i).ToArray();
+			var leastSquaresFitting = Fit.Line(seqNumbers, closingPrices);
+			var correlationCoff = GoodnessOfFit.R(seqNumbers, closingPrices);
+			var annualizedSlope = (Math.Pow(Math.Exp(leastSquaresFitting.Item2), 252) - 1) * 100;
+			var score = annualizedSlope * correlationCoff * correlationCoff;
+			momentum = score;
+			var r = Math.Exp(leastSquaresFitting.Item2) * correlationCoff * correlationCoff * 100;
+			volatility = r;
+		}
+
+		private SecurityAnalysis ComputeValues(HistoricPrice hp)
+		{
+			SecurityAnalysis sa = new SecurityAnalysis
+			{
+				Symbol = hp.Symbol
+			};
+			sa.DollarVolumeAverage = ComputeDollarVolume(hp);
+			sa.EfficiencyRatio = ComputeEfficiencyRatio(hp);
+			ComputeMomentum(hp, out double momentum, out double volatility);
+			sa.Momentum = momentum;
+			ComputeVolatility(hp, out volatility, out double inverseVolatility);
+			sa.ThirtyDayVolatility = volatility;
+			sa.VolatilityInverse = inverseVolatility;
+			return sa;
+		}
+
+		private void ComputeVolatility(HistoricPrice historicPrice, out double volatility, out double inverseVolatility)
+		{
+			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
+			// Taking trouble to use last one month calendar days!
+			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
+			var oneMonthRecords = candles
+				.Where(r => r.Datetime >= new DateTimeOffset(oneMonthAgo)
+				.ToUnixTimeSeconds()).Select(r => (double)r.Close);
+			volatility = Compute.ComputeMomentum.CalculateRsi(oneMonthRecords);
+			volatility = Math.Sqrt(oneMonthRecords.Average(z => z * z) - Math.Pow(oneMonthRecords.Average(), 2));
+			inverseVolatility = 1.0 / volatility;
+		}
+
+		private async Task<HistoricPrice> ObtainHistoricPrice(string security)
+		{
+			var queryHistoricPrice = historicPriceAPI.Replace(@"{tickersToUse}", security);
+			var drh = client.DefaultRequestHeaders;
+			if (!drh.Contains(@"x-api-key"))
+			{
+				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
+			}
+			try
+			{
+				var response = await client.GetAsync(queryHistoricPrice);
+				if (!response.IsSuccessStatusCode)
+				{
+					logger.LogError($"Error while getting historic price; \n\tError code: {response.StatusCode}");
+					logger.LogError($"{response.ReasonPhrase}");
+					return null;
+				}
+				string apiResponse = await response.Content.ReadAsStringAsync();
+				var historicPrices = JsonConvert.DeserializeObject<List<HistoricPrice>>(apiResponse);
+				return historicPrices.FirstOrDefault();
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
+				return null;
+			}
+		}
+
+		private async Task PopulateSecurityAnalysesViaAPI()
+		{
+			var drh = client.DefaultRequestHeaders;
+			if (!drh.Contains(@"x-api-key"))
+			{
+				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
+			}
+			try
+			{
+				var response = await client.GetAsync(securityAnalysisAPI);
+				if (!response.IsSuccessStatusCode)
+				{
+					logger.LogError($"Error while reading Security Analysis;\n\tError code: {response.StatusCode}");
+					logger.LogError($"{response.ReasonPhrase}");
+					return;
+				}
+				string apiResponse = await response.Content.ReadAsStringAsync();
+				SecurityAnalyses = JsonConvert.DeserializeObject<List<SecurityAnalysis>>(apiResponse);
+				return;
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Excepting getting/processing PopulateSecurityAnalysesViaAPI\n\t{ex.Message}");
+				return;
+			}
 		}
 
 		private async Task PopulateSecurityListAsync()
 		{
-			var queryIndexList = indexListAPI.Replace("@{IndexId}", Convert.ToInt32(IndexNames.SnP).ToString());
-			
+			var queryIndexList = indexListAPI.Replace(@"{IndexId}", Convert.ToInt32(IndexNames.SnP).ToString());
+
 			var indexComponents = await PullSecureityListAsync(queryIndexList);
+			securityList ??= new List<string>();
 			securityList.AddRange(indexComponents);
-			queryIndexList = indexListAPI.Replace("@{IndexId}", Convert.ToInt32(IndexNames.Nasdaq).ToString());
+			queryIndexList = indexListAPI.Replace(@"{IndexId}", Convert.ToInt32(IndexNames.Nasdaq).ToString());
 			indexComponents = await PullSecureityListAsync(queryIndexList);
 			securityList.AddRange(indexComponents);
-			securityList = securityList.Distinct().ToList();
+			securityList = securityList.Distinct().OrderBy(a => a.Trim()).ToList();
 		}
 
 		private async Task<List<string>> PullSecureityListAsync(string queryIndexList)
@@ -83,20 +315,53 @@ namespace DailyPriceFetch.Process
 			return indexComponents;
 		}
 
-		private async Task<bool> CheckRunDateAsync()
+		private async Task<bool> SaveSecurityAnalyses()
 		{
-			var lastUpdateTime = (await appRepository.GetAllAsync<RunDateSaveDB>(r => r.Symbol.Equals(SecAnalKey))).FirstOrDefault();
-			if (lastUpdateTime != null)
+			if (SecurityAnalyses == null || SecurityAnalyses.Count == 0)
 			{
-				logger.LogDebug("Found last run record");
-				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
-				//If we ran this application within the past 23 - 24 hours don't run it again.
-				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= HoursToWait)
-				{
-					return false;
-				}
+				return false;
 			}
-			return true;
+			var drh = client.DefaultRequestHeaders;
+			if (!drh.Contains(@"x-api-key"))
+			{
+				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
+			}
+			//Don't want anything. Delete all.
+			var getRunDate = DBValuesSetup.ComputeRunDate().AddMonths(1);
+			var delUrlStr = $"{securityAnalysisAPI}/{getRunDate.Year}/{getRunDate.Month}/{getRunDate.Day}";
+			await client.DeleteAsync(delUrlStr);
+			var json = JsonConvert.SerializeObject(SecurityAnalyses);
+			var data = new StringContent(json, Encoding.UTF8, "application/json");
+			var response = await client.PostAsync(securityAnalysisAPI, data);
+			if (response.IsSuccessStatusCode)
+			{
+				return true;
+			}
+			logger.LogError($"Error Saving security analyses: {response.ReasonPhrase}");
+			return false;
+			//var securityAnalysesDbLst = mapper.Map<List<SecurityAnalysisDB>>(SecurityAnalyses);
+			//for (int i = 0; i < securityAnalysesDbLst.Count; i++)
+			//{
+				//securityAnalysesDbLst[i] = (SecurityAnalysisDB)DBValuesSetup.SetAppDocValues(securityAnalysesDbLst[i]);
+			//}
+			//await appRepository.DeleteManyAsync<SecurityAnalysisDB>(r => r.ComputeDate != securityAnalysesDbLst[0].ComputeDate);
+			//await appRepository.AddManyAsync(securityAnalysesDbLst);
+			//await DBValuesSetup.CreateIndex<SecurityAnalysisDB>(appRepository);			
 		}
+		private async Task UpdateRunDateAsync()
+		{
+			await appRepository.DeleteOneAsync<RunDateSaveDB>(r => r.Symbol.Equals(SecAnalKey));
+			var currentRunDateSave = new RunDateSave
+			{
+				ProcessName = SecAnalKey,
+				LastRunTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+			};
+			var currentRunDateSaveDb = mapper.Map<RunDateSaveDB>(currentRunDateSave);
+			currentRunDateSaveDb = (RunDateSaveDB)DBValuesSetup.SetAppDocValues(currentRunDateSaveDb);
+			await appRepository.AddOneAsync<RunDateSaveDB>(currentRunDateSaveDb);
+			await DBValuesSetup.CreateIndex<RunDateSaveDB>(appRepository);
+		}
+
+		#endregion Private Methods
 	}
 }

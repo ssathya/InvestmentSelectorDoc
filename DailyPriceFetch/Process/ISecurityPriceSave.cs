@@ -4,7 +4,6 @@ namespace DailyPriceFetch.Process
 {
 	public interface ISecurityPriceSave
 	{
-		Task<bool> GetPricingData();
-		Task<bool> ComputeSecurityAnalysis();
+		Task<bool> GetPricingData();		
 	}
 }

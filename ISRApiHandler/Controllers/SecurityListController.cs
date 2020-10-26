@@ -25,11 +25,21 @@ namespace ISRApiHandler.Controllers
 		[HttpGet("{strIdxNm}/{indexSelector}")]
 		public async Task<IActionResult> Get(string strIdxNm, IndexNames indexSelector)
 		{
-			_logger.LogDebug($"Getting data only for {strIdxNm}");
-			if (indexSelector == IndexNames.None)
+			switch (indexSelector)
 			{
-				return StatusCode(StatusCodes.Status400BadRequest, "Cannot process request");
+				case IndexNames.SnP:
+					break;
+				case IndexNames.Nasdaq:
+					break;
+				case IndexNames.Both:
+					break;
+				case IndexNames.Index:
+					break;
+				default:
+					return StatusCode(StatusCodes.Status400BadRequest, "Cannot process request");
 			}
+			_logger.LogDebug($"Getting data only for {strIdxNm}");
+			
 			try
 			{
 				var records = await _appRepository.GetAllAsync<SlickChartFirmNamesDB>(r => r.Index.HasFlag(indexSelector));
