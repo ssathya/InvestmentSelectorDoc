@@ -2,13 +2,11 @@
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using AutoMapper;
-using MathNet.Numerics;
 using Microsoft.Extensions.Logging;
 using Models.AppModel;
 using MongoRepository.Model.AppModel;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -16,7 +14,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Trady.Analysis.Extension;
 using Utilities.AppEnv;
 using Utilities.StringHelpers;
 
@@ -26,12 +23,10 @@ namespace DailyPriceFetch.Process
 	{
 
 		private const string QueueName = "PricingList";
-		private const int WindowPeriod = 120;
 		private readonly string apiKey;
 		private readonly IAppRepository<string> appRepository;
 		private readonly HttpClient client;
-		private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
-		private readonly string IsrKey;
+		private readonly string isrKey;
 		private readonly ILogger<SecurityPriceSave> logger;
 		private readonly IMapper mapper;
 		private readonly GetQueueUrlResponse queueUrlResponse;
@@ -59,67 +54,12 @@ namespace DailyPriceFetch.Process
 			apiKey = EnvHandler.GetApiKey(@"tdameritrade");
 
 			//API Gateway key
-			IsrKey = EnvHandler.GetApiKey(@"ISRApiHandler");
+			isrKey = EnvHandler.GetApiKey(@"ISRApiHandler");
 
 			//Security list
 			securityList = GetTickerList().Result;
-
-			//Remove this after testing is done.
-			if (securityList == null || securityList.Count == 0)
-			{
-				securityList = new List<string>
-				{
-					"MSFT",
-					"AAPL",
-					"FDX",
-					"UPS",
-					"CRM",
-					"DAL",
-					"AAL",					
-					"C",
-					"ZM",
-					"TSLA",
-					"MRNA",
-					"DOCU",
-					"NVDA",
-					"JD",
-					"PDD",
-					"DXCM"
-
-				};
-				//securityList = appRepository.GetAll<SlickChartFirmNamesDB>(r => r.Index != IndexNames.Index).Select(r => r.Symbol).ToList();
-			}
 		}
-		public async Task<bool> ComputeSecurityAnalysis()
-		{
-			if (securityList == null || securityList.Count == 0)
-			{
-				return false;
-			}
-			//var queryTickers = string.Join(',', securityList);
-			var securityAnalyses = new List<SecurityAnalysis>();
-			foreach (var security in securityList)
-			{
-				var hp = await ObtainHistoricPrice(security);
-				if (hp == null || hp.Candles == null || hp.Candles.Count() <= WindowPeriod)
-				{
-					logger.LogInformation($"{security} has too little historic information");
-					continue;
-				}
-				foreach (var candle in hp.Candles)
-				{
-					candle.Datetime = candle.Datetime >= 999999999999 ?
-						candle.Datetime /= 1000 : candle.Datetime;
-				}
-				SecurityAnalysis sa = ComputeValues(hp);
-				securityAnalyses.Add(sa);
-			}
-			foreach (var analysis in securityAnalyses)
-			{
-				logger.LogDebug($"{analysis.Symbol} => Dollar Volume: {analysis.DollarVolumeAverage:C} Efficiency Ratio: {analysis.EfficiencyRatio:F} Momentum: {analysis.Momentum:F} Volatility: {analysis.ThirtyDayVolatility:F}");
-			}
-			return true;
-		}
+
 
 		public async Task<bool> GetPricingData()
 		{
@@ -153,92 +93,6 @@ namespace DailyPriceFetch.Process
 				logger.LogError($"Error details \n\t{ex.Message}");
 				return false;
 			}
-		}
-
-		private double ComputeDollarVolume(HistoricPrice historicPrice)
-		{
-			try
-			{
-				//var computeCandles = new List<IOhlcv>();
-				var computeCandles = (from candle in historicPrice.Candles
-									  select new Trady.Core.Candle(
-				  dateTime: DateTimeOffset.FromUnixTimeSeconds(candle.Datetime),
-				  open: candle.Open * candle.Volume,
-				  high: candle.High * candle.Volume,
-				  low: candle.Low * candle.Volume,
-				  close: candle.Close * candle.Volume,
-				  candle.Volume)).OrderBy(r => r.DateTime);
-				return Convert.ToDouble(computeCandles.Ema(30).Last().Tick ?? 0.0M);
-			}
-			catch (Exception ex)
-			{
-				logger.LogError($"Computing Dollar Volume for {historicPrice.Symbol}");
-				logger.LogError($"Error while importing historic data for momentum compute; reason\n\t{ex.Message}");
-				return 0;
-			}
-		}
-
-		private SecurityAnalysis ComputeValues(HistoricPrice historicPrice)
-		{
-			SecurityAnalysis securityAnalysis = new SecurityAnalysis()
-			{
-				Symbol = historicPrice.Symbol
-			};
-
-			securityAnalysis.DollarVolumeAverage = ComputeDollarVolume(historicPrice);
-			securityAnalysis.EfficiencyRatio = ComputeEfficiencyRatio(historicPrice);
-			ComputeMomentum(historicPrice, out double momentum, out double volatility);
-			securityAnalysis.Momentum = momentum;
-			//securityAnalysis.ThirtyDayVolatility = volatility;
-			ComputeVolatility(historicPrice, out volatility, out double inverseVolatility);
-			securityAnalysis.ThirtyDayVolatility = volatility;
-			securityAnalysis.VolatilityInverse = inverseVolatility;
-			return securityAnalysis;
-		}
-
-		private void ComputeVolatility(HistoricPrice historicPrice, out double volatility, out double inverseVolatility)
-		{
-			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
-			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
-			var oneMonthRecords = candles
-				.Where(r => r.Datetime >= new DateTimeOffset(oneMonthAgo)
-				.ToUnixTimeSeconds()).Select(r => (double)r.Close);
-			volatility = Compute.ComputeMomentum.CalculateRsi(oneMonthRecords);
-			volatility = Math.Sqrt(oneMonthRecords.Average(z => z * z) - Math.Pow(oneMonthRecords.Average(), 2));
-			inverseVolatility = 1.0 / volatility;			
-		}
-
-		private void ComputeMomentum(HistoricPrice historicPrice, out double momentum, out double volatility)
-		{
-			var closingPrices = historicPrice.Candles.Select(r => Math.Log((double)r.Close)).ToArray();
-			var seqNumbers = Enumerable.Range(0, closingPrices.Count()).Select<int, double>(i => i).ToArray();
-			var leastSquaresFitting = Fit.Line(seqNumbers, closingPrices);
-			var correlationCoff = GoodnessOfFit.R(seqNumbers, closingPrices);
-			var annualizedSlope = (Math.Pow(Math.Exp(leastSquaresFitting.Item2), 252) - 1) * 100;
-			var score = annualizedSlope * correlationCoff * correlationCoff;
-			momentum = score;
-			var r = Math.Exp(leastSquaresFitting.Item2) * correlationCoff * correlationCoff * 100;
-			volatility = r;
-		}
-
-		private double ComputeEfficiencyRatio(HistoricPrice historicPrice)
-		{
-			// We are computing efficiency ratio based on prices for the last one month.
-			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
-			var oneMonthAgo = DateTime.Now.AddMonths(-1).AddDays(-1);
-			var oneMonthAgoSecs = new DateTimeOffset(oneMonthAgo).ToUnixTimeSeconds();
-			var recordsToCount = candles.Where(r => r.Datetime >= oneMonthAgoSecs).Count();
-			var recordsToUse =
-			(from candle in candles
-			 select new Trady.Core.Candle(
-				 dateTime: DateTimeOffset.FromUnixTimeSeconds(candle.Datetime),
-				 open: candle.Open,
-				 high: candle.High,
-				 low: candle.Low,
-				 close: candle.Close,
-				 candle.Volume)).OrderBy(r => r.DateTime).ToList();
-			var efficiencyRatio = Convert.ToDouble(recordsToUse.Er(recordsToCount).Last().Tick ?? 0) * 100.0;
-			return efficiencyRatio;
 		}
 
 		private List<DailyPriceDB> ConvertPriceJsonToObjects(string tdaResponse)
@@ -310,33 +164,7 @@ namespace DailyPriceFetch.Process
 			return returnValues;
 		}
 
-		private async Task<HistoricPrice> ObtainHistoricPrice(string security)
-		{
-			var queryHistoricPrice = historicPriceAPI.Replace(@"{tickersToUse}", security);
-			var drh = client.DefaultRequestHeaders;
-			if (!drh.Contains(@"x-api-key"))
-			{
-				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
-			}
-			try
-			{
-				var response = await client.GetAsync(queryHistoricPrice);
-				if (!response.IsSuccessStatusCode)
-				{
-					logger.LogError($"Error while getting historic price; \n\tError code: {response.StatusCode}");
-					logger.LogError($"{response.ReasonPhrase}");
-					return null;
-				}
-				string apiResponse = await response.Content.ReadAsStringAsync();
-				var historicPrices = JsonConvert.DeserializeObject<List<HistoricPrice>>(apiResponse);
-				return historicPrices.FirstOrDefault();
-			}
-			catch (Exception ex)
-			{
-				logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
-				return null;
-			}
-		}
+
 
 	}
 }
