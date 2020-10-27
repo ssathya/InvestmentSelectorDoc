@@ -29,8 +29,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DailyPriceFetch", "DailyPri
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RunLambdaService", "RunLambdaService\RunLambdaService.csproj", "{779E4133-D9C8-40EF-ABFE-CDA2E6DD81E9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DailyPriceFetch.Test", "DailyPriceFetch.Test\DailyPriceFetch.Test.csproj", "{1369C188-CFB2-42F1-A0CE-D9634190DF73}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -65,10 +63,6 @@ Global
 		{779E4133-D9C8-40EF-ABFE-CDA2E6DD81E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{779E4133-D9C8-40EF-ABFE-CDA2E6DD81E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{779E4133-D9C8-40EF-ABFE-CDA2E6DD81E9}.Release|Any CPU.Build.0 = Release|Any CPU
-		{1369C188-CFB2-42F1-A0CE-D9634190DF73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1369C188-CFB2-42F1-A0CE-D9634190DF73}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1369C188-CFB2-42F1-A0CE-D9634190DF73}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1369C188-CFB2-42F1-A0CE-D9634190DF73}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

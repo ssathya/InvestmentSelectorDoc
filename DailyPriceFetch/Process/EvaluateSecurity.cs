@@ -3,8 +3,8 @@ using MathNet.Numerics;
 using Microsoft.Extensions.Logging;
 using Models.AppModel;
 using Models.HouseKeeping;
+using Models.SimFin;
 using Models.SlickChartModels;
-using MongoRepository.Model.AppModel;
 using MongoRepository.Model.HouseKeeping;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
@@ -17,26 +17,32 @@ using System.Text;
 using System.Threading.Tasks;
 using Trady.Analysis.Extension;
 using Utilities.AppEnv;
+using Utilities.StringHelpers;
 
 namespace DailyPriceFetch.Process
 {
 	public class EvaluateSecurity : IEvaluateSecurity
 	{
 
+
 		#region Private Fields
 
 		private const int HoursToWait = 23;
 		private const string SecAnalKey = "Security Analysis";
+		private const string simfinEntries = @"https://simfin.com/api/v1/info/all-entities?api-key={apiKey}";
+		private const string simfinRatios = @"https://simfin.com/api/v1/companies/id/{companyId}/ratios?api-key={apiKey}";
 		private const int WindowPeriod = 120;
 		private readonly IAppRepository<string> appRepository;
-		private readonly HttpClient client;
+		private readonly HttpClient client, client1;
 		private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
 		private readonly string indexListAPI = @"https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/SecurityList/DONTCARE/{IndexId}";
 		private readonly string IsrKey;
 		private readonly ILogger<EvaluateSecurity> logger;
 		private readonly IMapper mapper;
 		private readonly string securityAnalysisAPI = @"https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/SecurityAnalysis";
+		private readonly string simFinAPIKey;
 		private List<string> securityList;
+		private List<SimFinTickerToId> simFinTickerToIdsLst;
 
 		#endregion Private Fields
 
@@ -62,9 +68,11 @@ namespace DailyPriceFetch.Process
 
 			//HttpClient
 			client = clientFactory.CreateClient();
+			client1 = clientFactory.CreateClient();
 
 			//API Gateway key
 			IsrKey = EnvHandler.GetApiKey(@"ISRApiHandler");
+			simFinAPIKey = EnvHandler.GetApiKey(@"SimFinKey");
 		}
 
 		#endregion Public Constructors
@@ -103,7 +111,7 @@ namespace DailyPriceFetch.Process
 					hp.Candles[i].Datetime = hp.Candles[i].Datetime >= 999999999999 ?
 						hp.Candles[i].Datetime /= 1000 : hp.Candles[i].Datetime;
 				}
-				var sa = ComputeValues(hp);
+				var sa = await ComputeValuesAsync(hp);
 				if (sa != null)
 				{
 					SecurityAnalyses.Add(sa);
@@ -111,6 +119,18 @@ namespace DailyPriceFetch.Process
 			}
 			try
 			{
+				//1. Get PietroskiFScore only for top 110 companies by $$Volume.
+				//2. Selecting top 110 as some of the top 100 could be Banks which
+				//	do not have Pietroski Score.
+				var selectedFirms = SecurityAnalyses.OrderByDescending(r => r.DollarVolumeAverage)
+					.Take(110)
+					.Select(r => r.Symbol);
+
+				foreach (var symbol in selectedFirms)
+				{
+					var record = SecurityAnalyses.Find(r => r.Symbol == symbol);
+					record.PietroskiFScore = await ComputePietroskiScore(symbol);
+				}
 				await SaveSecurityAnalyses();
 				await UpdateRunDateAsync();
 			}
@@ -126,6 +146,15 @@ namespace DailyPriceFetch.Process
 
 
 		#region Private Methods
+
+		private static JsonSerializerSettings SerializerSettings()
+		{
+			return new JsonSerializerSettings
+			{
+				NullValueHandling = NullValueHandling.Ignore,
+				MissingMemberHandling = MissingMemberHandling.Ignore
+			};
+		}
 
 		private async Task<bool> CheckRunDateAsync()
 		{
@@ -200,22 +229,44 @@ namespace DailyPriceFetch.Process
 			volatility = r;
 		}
 
-		private SecurityAnalysis ComputeValues(HistoricPrice hp)
+		private async Task<int> ComputePietroskiScore(string symbol)
+		{
+			if (simFinTickerToIdsLst == null || simFinTickerToIdsLst.Count == 0)
+			{
+				string urlForSimFinKeys = simfinEntries.Replace(@"{apiKey}", simFinAPIKey);
+
+				try
+				{
+					await PopulateSimFinTickerToIds(urlForSimFinKeys);
+				}
+				catch (Exception ex)
+				{
+					logger.LogError($"Error while obtaining data from SimFin;\n\t{ex.Message}");
+					return 0;
+				}
+			}
+			decimal pfScore = await ObtainRatios(symbol);
+			return Convert.ToInt32(pfScore);
+
+		}
+
+		private async Task<SecurityAnalysis> ComputeValuesAsync(HistoricPrice hp)
 		{
 			SecurityAnalysis sa = new SecurityAnalysis
 			{
 				Symbol = hp.Symbol
 			};
-			sa.DollarVolumeAverage = ComputeDollarVolume(hp);
-			sa.EfficiencyRatio = ComputeEfficiencyRatio(hp);
+			//await Task.FromResult(TestFunc(2));
+			sa.DollarVolumeAverage = await Task.FromResult(ComputeDollarVolume(hp));
+			sa.EfficiencyRatio = await Task.FromResult(ComputeEfficiencyRatio(hp));
 			ComputeMomentum(hp, out double momentum, out double volatility);
 			sa.Momentum = momentum;
 			ComputeVolatility(hp, out volatility, out double inverseVolatility);
 			sa.ThirtyDayVolatility = volatility;
 			sa.VolatilityInverse = inverseVolatility;
+			//sa.PietroskiFScore = await ComputePietroskiScore(hp.Symbol);
 			return sa;
 		}
-
 		private void ComputeVolatility(HistoricPrice historicPrice, out double volatility, out double inverseVolatility)
 		{
 			var candles = historicPrice.Candles.OrderBy(r => r.Datetime);
@@ -255,6 +306,29 @@ namespace DailyPriceFetch.Process
 				logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
 				return null;
 			}
+		}
+
+		private async Task<decimal> ObtainRatios(string symbol)
+		{
+			var simFinTickerToId = simFinTickerToIdsLst.FirstOrDefault(a => a.Ticker == symbol.Trim().ToUpper());
+			if (simFinTickerToId == null)
+			{
+				return 0;
+			}
+			var urlToUse = simfinRatios
+				.Replace(@"{apiKey}", simFinAPIKey)
+				.Replace(@"{companyId}", simFinTickerToId.SimId.ToString());
+			string data = "[]";
+			data = await client1.GetStringAsync(urlToUse);
+			data = data.Replace(":\"N/A\"", ":null");
+			var settings = SerializerSettings();
+			var secRatios = JsonConvert.DeserializeObject<List<SimFinRatios>>(data, settings);
+			if (secRatios == null || secRatios.Count == 0)
+			{
+				return 0;
+			}
+			var pfScore = secRatios.FirstOrDefault(pfs => pfs.IndicatorName == "Pietroski F-Score").Value ?? 0;
+			return pfScore;
 		}
 
 		private async Task PopulateSecurityAnalysesViaAPI()
@@ -297,6 +371,21 @@ namespace DailyPriceFetch.Process
 			securityList = securityList.Distinct().OrderBy(a => a.Trim()).ToList();
 		}
 
+		private async Task PopulateSimFinTickerToIds(string urlForSimFinKeys)
+		{
+			string data = "[]";
+			data = await client1.GetStringAsync(urlForSimFinKeys);
+			data = data.Replace(":\"N/A\"", ":null");
+			JsonSerializerSettings settings = SerializerSettings();
+			simFinTickerToIdsLst = JsonConvert.DeserializeObject<List<SimFinTickerToId>>(data, settings);
+			for (int i = 0; i < simFinTickerToIdsLst.Count; i++)
+			{
+				if (!simFinTickerToIdsLst[i].Ticker.IsNullOrWhiteSpace())
+				{
+					simFinTickerToIdsLst[i].Ticker = simFinTickerToIdsLst[i].Ticker.Trim().ToUpper();
+				}
+			}
+		}
 		private async Task<List<string>> PullSecureityListAsync(string queryIndexList)
 		{
 			var drh = client.DefaultRequestHeaders;
@@ -330,19 +419,24 @@ namespace DailyPriceFetch.Process
 			var getRunDate = DBValuesSetup.ComputeRunDate().AddMonths(1);
 			var delUrlStr = $"{securityAnalysisAPI}/{getRunDate.Year}/{getRunDate.Month}/{getRunDate.Day}";
 			await client.DeleteAsync(delUrlStr);
-			var json = JsonConvert.SerializeObject(SecurityAnalyses);
-			var data = new StringContent(json, Encoding.UTF8, "application/json");
-			var response = await client.PostAsync(securityAnalysisAPI, data);
-			if (response.IsSuccessStatusCode)
+			const int stepCount = 30;
+			for (int i = 0; i < SecurityAnalyses.Count; i += stepCount)
 			{
-				return true;
+				var selectedRcds = SecurityAnalyses.Skip(i).Take(stepCount);
+				var json = JsonConvert.SerializeObject(selectedRcds);
+				var data = new StringContent(json, Encoding.UTF8, "application/json");
+				var response = await client.PostAsync(securityAnalysisAPI, data);
+				if (!response.IsSuccessStatusCode)
+				{
+					logger.LogError($"Error Saving security analyses: {response.ReasonPhrase}");
+					return false;
+				}
 			}
-			logger.LogError($"Error Saving security analyses: {response.ReasonPhrase}");
-			return false;
+			return true;
 			//var securityAnalysesDbLst = mapper.Map<List<SecurityAnalysisDB>>(SecurityAnalyses);
 			//for (int i = 0; i < securityAnalysesDbLst.Count; i++)
 			//{
-				//securityAnalysesDbLst[i] = (SecurityAnalysisDB)DBValuesSetup.SetAppDocValues(securityAnalysesDbLst[i]);
+			//securityAnalysesDbLst[i] = (SecurityAnalysisDB)DBValuesSetup.SetAppDocValues(securityAnalysesDbLst[i]);
 			//}
 			//await appRepository.DeleteManyAsync<SecurityAnalysisDB>(r => r.ComputeDate != securityAnalysesDbLst[0].ComputeDate);
 			//await appRepository.AddManyAsync(securityAnalysesDbLst);
@@ -363,5 +457,6 @@ namespace DailyPriceFetch.Process
 		}
 
 		#endregion Private Methods
+
 	}
 }
