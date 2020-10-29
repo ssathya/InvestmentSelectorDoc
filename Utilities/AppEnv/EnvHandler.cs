@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Utilities.AWS_S3;
 using Utilities.StringHelpers;
@@ -13,7 +12,13 @@ namespace Utilities.AppEnv
 	public static class EnvHandler
 	{
 
+		#region Private Fields
+
 		private static Dictionary<string, string> resourcesDict;
+
+		#endregion Private Fields
+
+
 		#region Public Methods
 
 		public static string GetApiKey(string provider)
@@ -23,16 +28,17 @@ namespace Utilities.AppEnv
 			{
 				return apiKey;
 			}
+			SetApplicationEnvVar.SetEnvVariablesFromS3();
 			apiKey = Environment.GetEnvironmentVariable(provider, EnvironmentVariableTarget.Process);
 			if (apiKey.IsNullOrWhiteSpace())
 			{
 				apiKey = Environment.GetEnvironmentVariable(provider, EnvironmentVariableTarget.Machine);
 			}
-			else if (apiKey.IsNullOrWhiteSpace())
+			if (apiKey.IsNullOrWhiteSpace())
 			{
 				apiKey = Environment.GetEnvironmentVariable(provider, EnvironmentVariableTarget.User);
 			}
-			else if (apiKey.IsNullOrWhiteSpace())
+			if (apiKey.IsNullOrWhiteSpace())
 			{
 				apiKey = Environment.GetEnvironmentVariable("NewsAPI");
 			}
@@ -76,6 +82,11 @@ namespace Utilities.AppEnv
 			}
 		}
 
+		#endregion Public Methods
+
+
+		#region Private Methods
+
 		private static void ConvertTxtToResourceDict(string txt)
 		{
 			var rfc = JObject.Parse(txt);
@@ -86,7 +97,6 @@ namespace Utilities.AppEnv
 			resourcesDict = rfc.ToObject<Dictionary<string, string>>();
 		}
 
-		#endregion Public Methods
-
+		#endregion Private Methods
 	}
 }

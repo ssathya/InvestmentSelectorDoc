@@ -1,10 +1,10 @@
-﻿using Models.AppModel;
+﻿using Models.SlickChartModels;
 using MongoDbGenericRepository.Attributes;
 
 namespace MongoRepository.Model.AppModel
 {
-	[CollectionName("TDAPrices")]
-	public class DailyPriceDB : DailyPrice, IAPPDoc
+	[CollectionName("SlicChartFirmNames")]
+	public class SlickChartFirmNamesDB : SlickChartFirmNames, IAPPDoc
 	{
 		public long ComputeDate { get; set; }
 		public string Id { get; set; }

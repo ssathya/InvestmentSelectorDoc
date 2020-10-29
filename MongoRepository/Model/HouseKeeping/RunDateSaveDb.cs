@@ -1,10 +1,10 @@
-﻿using Models.AppModel;
+﻿using Models.HouseKeeping;
 using MongoDbGenericRepository.Attributes;
 
-namespace MongoRepository.Model.AppModel
+namespace MongoRepository.Model.HouseKeeping
 {
-	[CollectionName("TDAPrices")]
-	public class DailyPriceDB : DailyPrice, IAPPDoc
+	[CollectionName("RunDateSave")]
+	public class RunDateSaveDB : RunDateSave, IAPPDoc
 	{
 		public long ComputeDate { get; set; }
 		public string Id { get; set; }
