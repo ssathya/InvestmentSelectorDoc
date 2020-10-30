@@ -27,7 +27,7 @@ namespace DailyPriceFetch.Process
 
 		#region Private Fields
 
-		private const int HoursToWait = 23;
+		private const int HoursToWait = 12;
 		private const string SecAnalKey = "Security Analysis";
 		private const string simfinEntries = @"https://simfin.com/api/v1/info/all-entities?api-key={apiKey}";
 		private const string simfinRatios = @"https://simfin.com/api/v1/companies/id/{companyId}/ratios?api-key={apiKey}";
@@ -163,7 +163,7 @@ namespace DailyPriceFetch.Process
 			{
 				logger.LogDebug("Found last run record");
 				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
-				//If we ran this application within the past 23 - 24 hours don't run it again.
+				//If we ran this application within the past 12 hours don't run it again.
 				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= HoursToWait)
 				{
 					return false;
