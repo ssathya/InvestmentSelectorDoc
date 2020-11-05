@@ -16,25 +16,29 @@ using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Utilities.ListHelpers;
+using Utilities.StringHelpers;
 
-namespace DailyPriceFetch.Process
+namespace CommonUtils.Process
 {
 	public class PopulateSQS : IPopulateSQS
 	{
-
 		#region Private Fields
 
-		private const string PricingDataKey = "Pricing Data";
-		private const string QueueName = "PricingList";
 		private readonly IAppRepository<string> appRepository;
 		private readonly ILogger<PopulateSQS> logger;
 		private readonly IMapper mapper;
-		private readonly GetQueueUrlResponse queueUrlResponse;
 		private readonly IAmazonSQS sqs;
+		private GetQueueUrlResponse queueUrlResponse;
 		private List<SlickChartFirmNames> slickChartFirmNames;
 
 		#endregion Private Fields
 
+		#region Public Properties
+
+		public string ProcessName { get; set; }
+		public string QueueName { get; set; }
+
+		#endregion Public Properties
 
 		#region Public Constructors
 
@@ -48,26 +52,25 @@ namespace DailyPriceFetch.Process
 
 			//SQS
 			sqs = new AmazonSQSClient(RegionEndpoint.USEast1);
-			queueUrlResponse = sqs.GetQueueUrlAsync(QueueName).Result;
 		}
 
 		#endregion Public Constructors
-
 
 		#region Public Methods
 
 		public async Task<bool> PopulateSQSQueue(int chunckSize = 75)
 		{
-			var lastUpdateTime = (await appRepository.GetAllAsync<RunDateSaveDB>(r => r.Symbol.Equals(PricingDataKey))).FirstOrDefault();
-			if (lastUpdateTime != null)
+			if (ProcessName.IsNullOrWhiteSpace() || QueueName.IsNullOrWhiteSpace())
 			{
-				logger.LogDebug("Found last run record");
-				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
-				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= 3)
-				{
-					return true;
-				}
+				logger.LogCritical("Required values Process Name and/or Queue Name need to be set before calling PopulateSQS Queue");
+				throw new Exception("Either Process name or Queue Name is not set");
 			}
+			queueUrlResponse = await sqs.GetQueueUrlAsync(QueueName);
+			if (!await CheckIfQueyNeedsRefresh())
+			{
+				return true;
+			}
+
 			//The ComputeDate >= 0 has no meaning.
 			//API needs a filter so giving a bogus filter.
 			var symbolCollection = await appRepository.GetAllAsync<SlickChartFirmNamesDB>(r => r.ComputeDate >= 0);
@@ -87,18 +90,31 @@ namespace DailyPriceFetch.Process
 
 		#endregion Public Methods
 
-
 		#region Private Methods
+
+		private async Task<bool> CheckIfQueyNeedsRefresh()
+		{
+			var lastUpdateTime = (await appRepository.GetAllAsync<RunDateSaveDB>(r => r.Symbol.Equals(ProcessName))).FirstOrDefault();
+			if (lastUpdateTime != null)
+			{
+				logger.LogDebug("Found last run record");
+				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
+				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= 3)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
 
 		private async Task SaveCurrentRunDate()
 		{
-
 			try
 			{
-				await appRepository.DeleteOneAsync<RunDateSaveDB>(r => r.Symbol.Equals(PricingDataKey));
+				await appRepository.DeleteOneAsync<RunDateSaveDB>(r => r.Symbol.Equals(ProcessName));
 				var currentRunDateSave = new RunDateSave
 				{
-					ProcessName = PricingDataKey,
+					ProcessName = ProcessName,
 					LastRunTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
 				};
 				var currentRunDateSaveDb = mapper.Map<RunDateSaveDB>(currentRunDateSave);
@@ -108,7 +124,7 @@ namespace DailyPriceFetch.Process
 			}
 			catch (Exception ex)
 			{
-				logger.LogError($"Error while updating Run Date for {PricingDataKey}");
+				logger.LogError($"Error while updating Run Date for {ProcessName}");
 				logger.LogError($"Error details \n\t{ex.Message}");
 			}
 		}

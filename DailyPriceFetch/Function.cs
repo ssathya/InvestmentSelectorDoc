@@ -1,5 +1,6 @@
 using Amazon.Lambda.Core;
 using AutoMapper;
+using CommonUtils.Process;
 using DailyPriceFetch.Process;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -39,21 +40,35 @@ namespace DailyPriceFetch
 			ConfigureServices(serviceCollection);
 			var serviceProvider = serviceCollection.BuildServiceProvider();
 
-			//Pricing
-			bool result = true;
-			result = GetPricingData(serviceProvider);
+			try
+			{
+				//Pricing
+				Console.WriteLine("Working on obtaining price");
+				bool result = true;
+				result = GetPricingData(serviceProvider);
+				Console.WriteLine($"Pricing information returned {result}");
 
-			//Evaluate Securities
-			var evalSec = serviceProvider.GetService<IEvaluateSecurity>();
-			result = result && evalSec.ComputeSecurityAnalysis().Result;
-
-			return (result ? "Everything ran well" : "Something is wrong today");
+				//Evaluate Securities
+				Console.WriteLine("Working on evaluating securities");
+				var evalSec = serviceProvider.GetService<IEvaluateSecurity>();
+				var result1 = evalSec.ComputeSecurityAnalysis().Result;
+				Console.WriteLine($"Security evaluation returned {result1}");
+				result = result && result1;
+				return (result ? "Everything ran well" : "Something is wrong today");
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Unhanded exception\n\t{ex.Message}");
+				return "Processing failed";
+			}
 		}
 
 		private static bool GetPricingData(ServiceProvider serviceProvider)
 		{
 			//Populate SQS if needed.
 			var popSQS = serviceProvider.GetService<IPopulateSQS>();
+			popSQS.ProcessName = "Pricing Data";
+			popSQS.QueueName = "PricingList";
 
 			var result = popSQS.PopulateSQSQueue(90).Result;
 

@@ -5,6 +5,7 @@ using Models.AppModel;
 using Models.HouseKeeping;
 using Models.SimFin;
 using Models.SlickChartModels;
+using MongoRepository.Model.AppModel;
 using MongoRepository.Model.HouseKeeping;
 using MongoRepository.Repository;
 using MongoRepository.Setup;
@@ -34,7 +35,7 @@ namespace DailyPriceFetch.Process
 		private const int WindowPeriod = 120;
 		private readonly IAppRepository<string> appRepository;
 		private readonly HttpClient client, client1;
-		private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
+		//private readonly string historicPriceAPI = @" https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/HistoricPrice/{tickersToUse}";
 		private readonly string indexListAPI = @"https://bq0hiv4olf.execute-api.us-east-1.amazonaws.com/Prod/api/SecurityList/DONTCARE/{IndexId}";
 		private readonly string IsrKey;
 		private readonly ILogger<EvaluateSecurity> logger;
@@ -92,31 +93,60 @@ namespace DailyPriceFetch.Process
 			{
 				SecurityAnalyses = new List<SecurityAnalysis>();
 			}
-			await PopulateSecurityListAsync();
+			try
+			{
+				await PopulateSecurityListAsync();
+			}
+			catch (Exception ex)
+			{
+				logger.LogError($"Exception while getting security list\n\t{ex.Message}");
+				return false;
+			}
+
 			if (securityList == null || securityList.Count == 0)
 			{
 				return false;
 			}
-			foreach (var security in securityList)
+			HistoricPrice hp = new HistoricPrice();
+			try
 			{
-				var hp = await ObtainHistoricPrice(security);
-				if (hp == null || hp.Candles == null || hp.Candles.Length <= WindowPeriod)
+				int counter = 0;
+				foreach (var security in securityList)
 				{
-					logger.LogInformation($"{security} has too little historic information");
-					continue;
-				}
-				var noOfCandles = hp.Candles.Count();
-				for (int i = 0; i < noOfCandles; i++)
-				{
-					hp.Candles[i].Datetime = hp.Candles[i].Datetime >= 999999999999 ?
-						hp.Candles[i].Datetime /= 1000 : hp.Candles[i].Datetime;
-				}
-				var sa = await ComputeValuesAsync(hp);
-				if (sa != null)
-				{
-					SecurityAnalyses.Add(sa);
+					hp = await ObtainHistoricPrice(security);
+					if (hp == null || hp.Candles == null || hp.Candles.Length <= WindowPeriod)
+					{
+						logger.LogInformation($"{security} has too little historic information");
+						continue;
+					}
+					var noOfCandles = hp.Candles.Count();
+					for (int i = 0; i < noOfCandles; i++)
+					{
+						hp.Candles[i].Datetime = hp.Candles[i].Datetime >= 999999999999 ?
+							hp.Candles[i].Datetime /= 1000 : hp.Candles[i].Datetime;
+					}
+					var sa = await ComputeValuesAsync(hp);
+					if (sa != null)
+					{
+						SecurityAnalyses.Add(sa);
+					}
+					if (++counter % 40 == 0)
+					{
+						logger.LogInformation($"Tech. analysis of {counter} out of {securityList.Count} done");
+					}
 				}
 			}
+			catch (Exception ex)
+			{
+				string symbol = "";
+				if (hp != null)
+				{
+					symbol = hp.Symbol;
+				}
+				logger.LogError($"Error while computing technicals on {symbol};\n\t{ex.Message}");
+				return false;
+			}
+			logger.LogInformation($"Done computing technicals.");
 			try
 			{
 				//1. Get PietroskiFScore only for top 110 companies by $$Volume.
@@ -161,13 +191,18 @@ namespace DailyPriceFetch.Process
 			var lastUpdateTime = (await appRepository.GetAllAsync<RunDateSaveDB>(r => r.Symbol.Equals(SecAnalKey))).FirstOrDefault();
 			if (lastUpdateTime != null)
 			{
-				logger.LogDebug("Found last run record");
+				logger.LogInformation("Found last run record for analysis");
 				var lastRunTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdateTime.LastRunTime).DateTime;
 				//If we ran this application within the past 12 hours don't run it again.
 				if ((DateTime.Now.ToUniversalTime() - lastRunTime).TotalHours <= HoursToWait)
 				{
+					logger.LogInformation($"Analysis last run {lastRunTime}");
 					return false;
 				}
+			}
+			else
+			{
+				logger.LogInformation("Did not find last run record for analysis");
 			}
 			return true;
 		}
@@ -280,34 +315,46 @@ namespace DailyPriceFetch.Process
 			inverseVolatility = 1.0 / volatility;
 		}
 
+		//private async Task<HistoricPrice> ObtainHistoricPrice(string security)
+		//{
+		//	var queryHistoricPrice = historicPriceAPI.Replace(@"{tickersToUse}", security);
+		//	var drh = client.DefaultRequestHeaders;
+		//	if (!drh.Contains(@"x-api-key"))
+		//	{
+		//		client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
+		//	}
+		//	try
+		//	{
+		//		var response = await client.GetAsync(queryHistoricPrice);
+		//		if (!response.IsSuccessStatusCode)
+		//		{
+		//			logger.LogError($"Error while getting historic price; \n\tError code: {response.StatusCode}");
+		//			logger.LogError($"{response.ReasonPhrase}");
+		//			return null;
+		//		}
+		//		string apiResponse = await response.Content.ReadAsStringAsync();
+		//		var historicPrices = JsonConvert.DeserializeObject<List<HistoricPrice>>(apiResponse);
+		//		return historicPrices.FirstOrDefault();
+		//	}
+		//	catch (Exception ex)
+		//	{
+		//		logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
+		//		return null;
+		//	}
+		//}
+
 		private async Task<HistoricPrice> ObtainHistoricPrice(string security)
 		{
-			var queryHistoricPrice = historicPriceAPI.Replace(@"{tickersToUse}", security);
-			var drh = client.DefaultRequestHeaders;
-			if (!drh.Contains(@"x-api-key"))
+			var hp1 = (await appRepository.GetAllAsync<HistoricPriceDB>
+				(r => r.Symbol.Equals(security))).FirstOrDefault();
+			if (hp1 == null)
 			{
-				client.DefaultRequestHeaders.Add(@"x-api-key", IsrKey);
-			}
-			try
-			{
-				var response = await client.GetAsync(queryHistoricPrice);
-				if (!response.IsSuccessStatusCode)
-				{
-					logger.LogError($"Error while getting historic price; \n\tError code: {response.StatusCode}");
-					logger.LogError($"{response.ReasonPhrase}");
-					return null;
-				}
-				string apiResponse = await response.Content.ReadAsStringAsync();
-				var historicPrices = JsonConvert.DeserializeObject<List<HistoricPrice>>(apiResponse);
-				return historicPrices.FirstOrDefault();
-			}
-			catch (Exception ex)
-			{
-				logger.LogError($"Excepting getting/processing historic price\n\t{ex.Message}");
 				return null;
 			}
-		}
+			var hp = mapper.Map<HistoricPrice>(hp1);
+			return hp;
 
+		}
 		private async Task<decimal> ObtainRatios(string symbol)
 		{
 			var simFinTickerToId = simFinTickerToIdsLst.FirstOrDefault(a => a.Ticker == symbol.Trim().ToUpper());
@@ -349,6 +396,7 @@ namespace DailyPriceFetch.Process
 				}
 				string apiResponse = await response.Content.ReadAsStringAsync();
 				SecurityAnalyses = JsonConvert.DeserializeObject<List<SecurityAnalysis>>(apiResponse);
+				logger.LogDebug($"Found {SecurityAnalyses.Count} Securities to evaluate");
 				return;
 			}
 			catch (Exception ex)
@@ -365,10 +413,13 @@ namespace DailyPriceFetch.Process
 			var indexComponents = await PullSecureityListAsync(queryIndexList);
 			securityList ??= new List<string>();
 			securityList.AddRange(indexComponents);
+			logger.LogInformation($"Found {indexComponents.Count} securities in {IndexNames.SnP}");
 			queryIndexList = indexListAPI.Replace(@"{IndexId}", Convert.ToInt32(IndexNames.Nasdaq).ToString());
 			indexComponents = await PullSecureityListAsync(queryIndexList);
+			logger.LogInformation($"Found {indexComponents.Count} securities in {IndexNames.Nasdaq}");
 			securityList.AddRange(indexComponents);
 			securityList = securityList.Distinct().OrderBy(a => a.Trim()).ToList();
+			logger.LogInformation($"Found {securityList.Count} securities in {IndexNames.SnP} & {IndexNames.Nasdaq}");
 		}
 
 		private async Task PopulateSimFinTickerToIds(string urlForSimFinKeys)
