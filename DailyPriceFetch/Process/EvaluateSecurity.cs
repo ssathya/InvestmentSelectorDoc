@@ -149,11 +149,9 @@ namespace DailyPriceFetch.Process
 			logger.LogInformation($"Done computing technicals.");
 			try
 			{
-				//1. Get PietroskiFScore only for top 110 companies by $$Volume.
-				//2. Selecting top 110 as some of the top 100 could be Banks which
-				//	do not have Pietroski Score.
-				var selectedFirms = SecurityAnalyses.OrderByDescending(r => r.DollarVolumeAverage)
-					.Take(110)
+				//1. Get PietroskiFScore only for all index firms.
+
+				var selectedFirms = SecurityAnalyses.OrderByDescending(r => r.DollarVolumeAverage)					
 					.Select(r => r.Symbol);
 
 				foreach (var symbol in selectedFirms)
